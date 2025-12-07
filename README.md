@@ -59,7 +59,7 @@ bash wnmp.sh
 ```
 
 License: **GPLv3**  
-Run as **root**. Using `screen` is optional (prevents disconnects).
+Run as **root**.
 
 ---
 
