@@ -53,9 +53,6 @@ It’s designed for **small to medium websites, edge nodes, and private deployme
 ## ⚙️ Installation
 
 ```bash
-apt update
-apt install -y curl wget screen
-screen -S wnmp   # Resume: screen -rD wnmp
 curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
