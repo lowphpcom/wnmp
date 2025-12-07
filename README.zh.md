@@ -1,0 +1,93 @@
+# 🌀 WNMP 一键安装包
+**WebDAV · Nginx · MariaDB · PHP · 内核调优**
+
+![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
+![Build](https://img.shields.io/badge/Installer-一键安装-orange.svg)
+
+> 轻量 · 稳定 · 可复制  
+> 一条命令安装 WebDAV + Nginx + PHP + MariaDB（内置 Mroonga 搜索引擎），自动完成内核/网络调优与 SSL 证书配置。
+
+---
+
+## 🚀 概述
+
+**WNMP** 通过一条命令安装 Nginx、PHP、MariaDB，集成 `acme.sh` 自动申请证书，配置 WebDAV、开启 BBR/FQ、关闭 THP，为中小网站、边缘节点、私有化项目提供开箱即用的生产环境。
+
+---
+
+## ✨ 核心特性
+
+- **即装即用的 Web 运行环境**  
+  编译安装 Nginx 1.28.0（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.5 与 MariaDB 10.6 / 10.11。
+
+- **内核 / 网络调优**  
+  启用 BBR/FQ，优化 `somaxconn` 与文件句柄，关闭 THP，自动写入 sysctl 与 limits。
+
+- **证书自动化**  
+  集成 `acme.sh`，优先使用 Cloudflare DNS-01，失败时自动回落 webroot，签发后自动 reload Nginx。
+
+- **多站点与 WebDAV 支持**  
+  一键创建虚拟主机，内置 phpMyAdmin 保护与 WebDAV 账号管理，每个域名独立密码文件 `/home/passwd/`。
+
+- **可维护的目录结构**
+  ```
+  /usr/local/nginx
+  /usr/local/php
+  /home/wwwroot
+  ```
+
+- **安全默认值**
+  禁用隐蔽目录与危险后缀，合理的超时与缓存配置，关闭不必要的 PHP 选项。
+
+---
+
+## ⚙️ 安装方法
+
+```bash
+curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh
+```
+
+请使用 **root 用户** 执行。`screen` 命令可选，用于防止掉线。  
+脚本协议：**GPLv3**。
+
+---
+
+## 💡 常用命令
+
+| 功能 | 命令 |
+|------|------|
+| 正常安装 | `bash wnmp.sh` |
+| 查看状态 | `bash wnmp.sh status` |
+| SSH 密钥登录 | `bash wnmp.sh sshkey` |
+| 添加 WebDAV 账号 | `bash wnmp.sh webdav` |
+| 默认站点域名与证书 | `bash wnmp.sh default` |
+| 创建虚拟主机（含证书） | `bash wnmp.sh vhost` |
+| 仅执行内核/网络调优 | `bash wnmp.sh tool` |
+| 重启所有服务 | `bash wnmp.sh restart` |
+| 清理 | `bash wnmp.sh remove` / `bash wnmp.sh renginx` / `bash wnmp.sh rephp` / `bash wnmp.sh remariadb` |
+
+---
+
+## 🌐 可选页脚标识
+
+```html
+<small>本服务器由 <a href="https://wnmp.org" target="_blank" rel="noopener">wnmp.org</a> 一键包构建</small>
+```
+
+---
+
+## 📖 开源协议
+
+本项目以 **GNU GPLv3** 协议开源，允许在相同协议下使用、修改与再发布。
+
+---
+
+## 🤝 社区
+
+- **官网:** [https://wnmp.org](https://wnmp.org)
+- **QQ群:** 1075305476  
+- **Telegram:** [t.me/wnmps](https://t.me/wnmps)
+- **License:** [GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0.html)
