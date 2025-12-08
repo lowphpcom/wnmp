@@ -26,7 +26,6 @@ These host-level capabilities are often uncontrollable within containers or requ
 # Recommended Deployment Methods
 Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, or KVM virtual systems running within Proxmox (PVE) to fully leverage its performance tuning and system optimization advantages.
 
-Translated with DeepL.com (free version)
 
 ---
 ## 🚀 Overview
