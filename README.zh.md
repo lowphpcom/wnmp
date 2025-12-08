@@ -6,7 +6,7 @@
 ![Build](https://img.shields.io/badge/Installer-一键安装-orange.svg)
 
 > 轻量 · 稳定 · 可复制  
-> 一条命令安装 WebDAV + Nginx + PHP + MariaDB（内置 Mroonga 搜索引擎），自动完成内核/网络调优与 SSL 证书配置。
+> 一条命令在Windows11(WSL)+Linux(Debian,Ubuntu)安装 WebDAV + Nginx + PHP + MariaDB（内置 Mroonga 搜索引擎），自动完成内核/网络调优与 SSL 证书配置。
 
 ---
 
