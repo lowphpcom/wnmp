@@ -10,19 +10,19 @@
 
 ---
 
-# WNMP：
+## WNMP：
 
-# 1、Windows11(WSL)+Nginx+Mariadb+PHP
+## 1、Windows11(WSL)+Nginx+Mariadb+PHP
 
-# 2、(Linux)WebDav+Nginx+Mariadb+PHP
+## 2、(Linux)WebDav+Nginx+Mariadb+PHP
 
-# WNMP 的核心目标
+## WNMP 的核心目标
 WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干净的系统环境下，一键完成 宿主级性能调优与安全基线配置（内核网络参数、ulimit 限制、SSH 密钥配置、编译优化等）。
 
-# 为什么不适配 Docker
+## 为什么不适配 Docker
 这些宿主级能力在容器内往往不可控，或需要 --privileged 等高权限运行，反而削弱了容器的隔离初衷。
 
-# 推荐部署方式
+## 推荐部署方式
 因此，WNMP 推荐在 KVM 虚拟机、云服务器，或 Proxmox (PVE) 中开设的 KVM 虚拟系统上使用，以充分发挥其性能调优与系统优化的优势。
 
 
