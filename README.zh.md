@@ -1,5 +1,5 @@
 # 🌀 WNMP 一键安装包
-**WebDAV · Nginx · MariaDB · PHP · 内核调优**
+**Windows11(WSL)+Linux(Debian,Ubuntu) · Nginx · MariaDB · PHP · WebDAV · 内核调优**
 
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
