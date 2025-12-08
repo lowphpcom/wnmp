@@ -45,6 +45,7 @@
 ## ⚙️ 安装方法
 
 ```bash
+apt install -y curl
 curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
