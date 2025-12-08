@@ -10,6 +10,8 @@
 
 ---
 
+# WNMP = WebDAV + Nginx + MariaDB + PHP
+
 ## 🚀 Overview
 
 **WNMP** installs Nginx, PHP, and MariaDB with a single command, configures SSL via `acme.sh`, sets up WebDAV, applies BBR/FQ tuning, and safely disables THP.
