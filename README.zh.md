@@ -1,5 +1,5 @@
 # 🌀 WNMP 一键安装包
-**Windows11(WSL)+Linux(Debian,Ubuntu) · Nginx · MariaDB · PHP · WebDAV · 内核调优**
+**Windows11(WSL)+Linux(Debian,Ubuntu) · Nginx · Mariadb(Mroonga) · PHP · WebDAV · 内核调优**
 
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
@@ -12,9 +12,9 @@
 
 ## WNMP：
 
-## 1、Windows11(WSL)+Nginx+Mariadb+PHP
+## 1、Windows11(WSL)+Nginx+Mariadb(Mroonga)+PHP
 
-## 2、(Linux)WebDav+Nginx+Mariadb+PHP
+## 2、(Linux)WebDav+Nginx+Mariadb(Mroonga)+PHP
 
 ## WNMP 的核心目标
 WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干净的系统环境下，一键完成 宿主级性能调优与安全基线配置（内核网络参数、ulimit 限制、SSH 密钥配置、编译优化等）。
