@@ -10,6 +10,8 @@
 
 ---
 
+# WNMP = WebDAV + Nginx + MariaDB + PHP
+
 ## 🚀 概述
 
 **WNMP** 通过一条命令安装 Nginx、PHP、MariaDB，集成 `acme.sh` 自动申请证书，配置 WebDAV、开启 BBR/FQ、关闭 THP，为中小网站、边缘节点、私有化项目提供开箱即用的生产环境。
