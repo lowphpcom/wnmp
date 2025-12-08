@@ -12,18 +12,18 @@
 
 ---
 
-# WNMP：
+## WNMP：
 
-# 1、Windows11(WSL)+Nginx+Mariadb+PHP
-# 2、(Linux)WebDav+Nginx+Mariadb+PHP
+## 1、Windows11(WSL)+Nginx+Mariadb+PHP
+## 2、(Linux)WebDav+Nginx+Mariadb+PHP
 
-# Core Objectives of WNMP
+## Core Objectives of WNMP
 WNMP is not merely about “packaging Nginx + PHP + MariaDB into a container.” Its purpose is to achieve host-level performance tuning and baseline security configuration (kernel network parameters, ulimit restrictions, SSH key setup, compilation optimizations, etc.) with a single click in a clean system environment.
 
-# Why Docker is Not Suitable
+## Why Docker is Not Suitable
 These host-level capabilities are often uncontrollable within containers or require high privileges like --privileged, which undermines the fundamental purpose of container isolation.
 
-# Recommended Deployment Methods
+## Recommended Deployment Methods
 Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, or KVM virtual systems running within Proxmox (PVE) to fully leverage its performance tuning and system optimization advantages.
 
 
