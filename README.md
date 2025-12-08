@@ -1,5 +1,5 @@
 # 🌀 WNMP — One-Click Web Stack
-**Windows11(WSL)+Linux(Debian,Ubuntu) · Nginx · MariaDB · PHP · WebDav · Kernel Optimization**
+**Windows11(WSL)+Linux(Debian,Ubuntu) · Nginx · Mariadb(Mroonga) · PHP · WebDav · Kernel Optimization**
 ---
 [🇨🇳 中文版说明](./README.zh.md)
 ---
@@ -14,8 +14,8 @@
 
 ## WNMP：
 
-## 1、Windows11(WSL)+Nginx+Mariadb+PHP
-## 2、(Linux)WebDav+Nginx+Mariadb+PHP
+## 1、Windows11(WSL)+Nginx+Mariadb(Mroonga)+PHP
+## 2、(Linux)WebDav+Nginx+Mariadb(Mroonga)+PHP
 
 ## Core Objectives of WNMP
 WNMP is not merely about “packaging Nginx + PHP + MariaDB into a container.” Its purpose is to achieve host-level performance tuning and baseline security configuration (kernel network parameters, ulimit restrictions, SSH key setup, compilation optimizations, etc.) with a single click in a clean system environment.
