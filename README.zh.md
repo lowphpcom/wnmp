@@ -13,7 +13,7 @@
 ## WNMP：
 
 ## 1、Windows11(WSL)+Nginx+Mariadb(Mroonga)+PHP
-
+(Windows11-WSL运行的Linux子系统部署，不是exe环境包)
 ## 2、(Linux)WebDav+Nginx+Mariadb(Mroonga)+PHP
 
 ## WNMP 的核心目标
