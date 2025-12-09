@@ -120,7 +120,7 @@ Save the private key to your local computer. You can then load the key in an SSH
 
 After configuring key-based login, the server will block all username/password logins.
 ---
-How to Install and Use WMMP on Windows?
+## How to Install and Use WMMP on Windows?
 
 Ensure you are using Windows 11. First, install the WSL subsystem.
 
