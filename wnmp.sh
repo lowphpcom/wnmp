@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.01
+# Version: 1.02
 
 set -euo pipefail
 
@@ -1715,7 +1715,8 @@ if [ "$php_version" != "0" ]; then
     --with-zip \
     --enable-opcache \
     --with-webp \
-    --disable-fileinfo
+    --disable-fileinfo \
+    --enable-pcntl
 
   make -j${JOBS}
   make install
