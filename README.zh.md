@@ -124,9 +124,10 @@ Win+R 组合键打开运行输入框，输入cmd # 键盘组合键shift+ctrl+ent
 正常安装后会要求配置一个普通账号+密码，配置成功后直接：exit 退出子系统
 
 wsl -d debian -u root # 以root账号身份登录debian系统
-
-apt install -y curl && curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh && chmod +x wnmp.sh && bash wnmp.sh wslinit
-
+```bash
+cd ~
+apt update && apt install -y curl && curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh && chmod +x wnmp.sh && bash wnmp.sh wslinit
+```
 在此电脑任务地址栏定位打开C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup # 请用windows登录的真实账号名代替[username]
 
 新建一个wsl.vbs文件并写入内容：
