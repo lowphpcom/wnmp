@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.04
+# Version: 1.05
 
 set -euo pipefail
 
@@ -1142,16 +1142,92 @@ purge_php() {
   apt autoremove -y 2>/dev/null || true
 }
 purge_mariadb() {
-  echo "Purging MariaDB (if any)..."
-  systemctl stop mariadb 2>/dev/null || true
-  systemctl disable mariadb 2>/dev/null || true
-  rm -f /etc/systemd/system/mariadb.service
-  systemctl daemon-reload || true
-  rm -rf /usr/local/mariadb /usr/local/mroonga /etc/my.cnf /etc/mysql /home/mariadb /var/lib/mysql /var/log/mysql \
-         /usr/bin/mysql* /usr/bin/mysqld* /root/mariadb-* /root/mroonga* /usr/local/src/mariadb-*
-  apt purge -y 'mariadb*' 'mysql-*' 2>/dev/null || true
-  apt autoremove -y 2>/dev/null || true
+  set -euo pipefail
+
+  has_mariadb_service=0
+  if systemctl list-unit-files | grep -qE '^(mariadb|mysql)\.service'; then
+    has_mariadb_service=1
+  fi
+
+  has_mariadb_bins=0
+  if command -v mysqld >/dev/null 2>&1 || command -v mariadbd >/dev/null 2>&1; then
+    has_mariadb_bins=1
+  fi
+
+  has_mysql_datadir=0
+  if [ -d /var/lib/mysql ] || [ -d /var/lib/mariadb ]; then
+    has_mysql_datadir=1
+  fi
+
+  if [ "$has_mariadb_service" -eq 0 ] && [ "$has_mariadb_bins" -eq 0 ] && [ "$has_mysql_datadir" -eq 0 ]; then
+    echo "[mariadb] No MariaDB components found — skipping backup and cleanup."
+  else
+
+    backup_done=0
+    ts="$(date +%Y%m%d_%H%M%S)"
+    backup_file="/home/all_databases_backup_${ts}.sql.gz"
+
+    mysql_cmd_base=(mysql --connect-timeout=3 --protocol=SOCKET -uroot)
+    mysqldump_cmd_base=(mysqldump --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+
+    if [ -f /root/.my.cnf ]; then
+      mysql_cmd_base=(mysql --defaults-file=/root/.my.cnf --connect-timeout=3)
+      mysqldump_cmd_base=(mysqldump --defaults-file=/root/.my.cnf --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+    fi
+
+    if ! "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
+      mysql_cmd_base=(mysql -h127.0.0.1 -P3306 -uroot --connect-timeout=3)
+      mysqldump_cmd_base=(mysqldump -h127.0.0.1 -P3306 -uroot --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+
+      if [ -f /root/.my.cnf ]; then
+        mysql_cmd_base=(mysql --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --connect-timeout=3)
+        mysqldump_cmd_base=(mysqldump --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+      fi
+    fi
+
+    if "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
+      echo "[backup] Detected a running MariaDB instance — starting full database backup: ${backup_file}"
+      mkdir -p /home
+
+      if command -v ionice >/dev/null 2>&1; then
+        ionice -c2 -n7 nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
+      else
+        nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
+      fi
+
+      if [ -s "${backup_file}" ]; then
+        echo "[backup] Backup completed successfully: ${backup_file}"
+        backup_done=1
+      else
+        echo "[backup][WARN] Backup file is empty — possible backup failure: ${backup_file}"
+      fi
+    else
+      echo "[backup][WARN] Unable to connect to MariaDB — skipping backup (no root credentials or service unavailable)."
+    fi
+
+    echo "Purging MariaDB (if any)..."
+    systemctl stop mariadb 2>/dev/null || true
+    systemctl stop mysql 2>/dev/null || true
+    systemctl disable mariadb 2>/dev/null || true
+    systemctl disable mysql 2>/dev/null || true
+    rm -f /etc/systemd/system/mariadb.service /etc/systemd/system/mysql.service
+    systemctl daemon-reload || true
+
+    rm -rf /usr/local/mariadb /usr/local/mroonga /etc/my.cnf /etc/mysql /home/mariadb \
+           /var/lib/mysql /var/log/mysql \
+           /usr/bin/mysql* /usr/bin/mysqld* /root/mariadb-* /root/mroonga* /usr/local/src/mariadb-*
+
+    apt purge -y 'mariadb*' 'mysql-*' 2>/dev/null || true
+    apt autoremove -y 2>/dev/null || true
+
+    if [ "$backup_done" -eq 1 ]; then
+      echo "[done] MariaDB has been purged. Backup saved at: ${backup_file}"
+    else
+      echo "[done] MariaDB has been purged (no backup created or backup failed)."
+    fi
+  fi
 }
+
 
 
 remove(){
