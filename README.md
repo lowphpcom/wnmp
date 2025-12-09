@@ -15,6 +15,7 @@
 ## WNMP：
 
 ## 1、Windows11(WSL)+Nginx+Mariadb(Mroonga)+PHP
+<span style="color:#DC2626;">(Deployed in a Linux subsystem running on Windows 11 - WSL, **not** an .exe environment package)</span>
 ## 2、(Linux)WebDav+Nginx+Mariadb(Mroonga)+PHP
 
 ## Core Objectives of WNMP
