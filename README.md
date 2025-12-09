@@ -141,7 +141,7 @@ apt install -y curl && curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh && chmod 
 
 In the taskbar, navigate to and open:
 C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
-# Replace [username] with your actual Windows login username
+Replace [username] with your actual Windows login username
 
 Create a new wsl.vbs file and add the following content:
 ```bash
