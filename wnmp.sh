@@ -184,9 +184,17 @@ is_lan() {
 is_lan
 
 if [[ "$IS_LAN" -eq 1 ]]; then
-  red "[env] This is an internal network environment; certificate requests will be skipped."
+red "[env] Detected a LAN environment, certificate issuance will be skipped."
+read -rp "Do you want to force certificate issuance? [y/N] " ans
+ans="${ans:-N}"
+if [[ "$ans" =~ [Yy]$ ]]; then
+  green "[env] Forced certificate issuance enabled."
+  IS_LAN=0
 else
-  green "[env] Public network environment detected; certificate application can proceed normally."
+  red "[env] Certificate issuance remains skipped."
+fi
+else
+green "[env] Public network detected, certificate issuance is available."
 fi
 
 
