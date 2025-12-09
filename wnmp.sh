@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.02
+# Version: 1.03
 
 set -euo pipefail
 
@@ -499,11 +499,14 @@ http {
         
         ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
         ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
-        ssl_session_timeout 10m;
         ssl_session_cache   shared:SSL:20m;
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
         ssl_prefer_server_ciphers off;
+        ssl_session_timeout 1d;
+        ssl_session_tickets off;
+        ssl_stapling on;
+        ssl_stapling_verify on;
 
         autoindex_exact_size off;
         autoindex_localtime on;
@@ -761,11 +764,14 @@ server{
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
     ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
-    ssl_session_timeout 10m;
     ssl_session_cache   shared:SSL:20m;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
     ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_stapling on;
+    ssl_stapling_verify on;
     location ~* /(low)/                 { deny all; }
     location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
     location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
@@ -2337,8 +2343,8 @@ http {
     proxy_request_buffering on;
     
     client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
-    client_max_body_size 0;
-    client_body_buffer_size 8m;
+    client_max_body_size 10g;
+    client_body_buffer_size 512k;
     client_header_timeout 1800s;
     client_body_timeout   1800s;
     send_timeout          1800s;
@@ -2495,8 +2501,8 @@ http {
     proxy_request_buffering on;
     
     client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
-    client_max_body_size 0;
-    client_body_buffer_size 8m;
+    client_max_body_size 10g;
+    client_body_buffer_size 512k;
     client_header_timeout 1800s;
     client_body_timeout   1800s;
     send_timeout          1800s;
