@@ -70,6 +70,37 @@ Usage:
 USAGE
 }
 
+
+
+is_lan() {
+  local local_ip
+  local_ip=$(hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /^127\./) {print $i; exit}}' 2>/dev/null)
+  if [[ -z "$local_ip" ]]; then
+    IS_LAN=1
+    return 0
+  fi
+  if [[ "$local_ip" =~ ^10\. ]] || \
+     [[ "$local_ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
+     [[ "$local_ip" =~ ^192\.168\. ]] || \
+     [[ "$local_ip" =~ ^127\. ]] || \
+     [[ "$local_ip" =~ ^169\.254\. ]]; then
+    IS_LAN=1
+  else
+    IS_LAN=0
+  fi
+  return 0
+}
+
+is_lan
+
+if [[ "$IS_LAN" -eq 1 ]]; then
+  red "[env] This is an internal network environment; certificate requests will be skipped."
+else
+  green "[env] Public network environment detected; certificate application can proceed normally."
+fi
+
+
+
 status() {
 
   systemctl --no-pager status nginx
@@ -519,6 +550,96 @@ vhost() {
   set -euo pipefail
 
   local tmpl
+
+
+if [[ "$IS_LAN" -eq 1 ]]; then
+ tmpl=$(cat <<'EOF'
+server{
+    listen 80;
+    server_name example;
+    root  /home/wwwroot/default;
+    index index.html index.php;
+    error_page 403 = @e403;
+    location @e403 {
+        root html;
+        internal;  
+        try_files /403.html =403;
+    }
+
+    error_page 502 504 404 = @e404;
+    location @e404 {
+        root html;
+        internal;
+        try_files /404.html =404;
+    }
+    tcp_nopush on;
+    tcp_nodelay on;
+    include enable-php.conf;
+    
+    location ~* /(low)/                 { deny all; }
+    location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
+    location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
+    location ~ /\.                      { deny all; access_log off; log_not_found off; }
+    location = /favicon.ico             { access_log off; log_not_found off; expires max; try_files /favicon.ico =204; }
+    location = /robots.txt              { allow all; access_log off; log_not_found off; }
+
+    location ~* ^.+\.(apk|css|webp|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|txt|xml|json|mp4|webm|avi|mp3|zip|rar|tar|gz|xlsx|docx|bin|pcm)$ {
+        access_log off;
+        expires 1d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+        location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
+    }
+    
+    location / {
+        try_files $uri $uri/ @lowphp;
+    }
+    location @lowphp {
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://lowphp;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 3s;
+        proxy_send_timeout    30s;
+        proxy_read_timeout    60s;
+        
+    }
+
+    location = /webdav {
+        return 301 /webdav/;
+    }
+
+    location ^~ /webdav/ {
+        if ($server_port != 443) { return 403; }
+        set $domain $host;
+        if ($host ~* "^www\.(.+)$") {
+            set $domain $1;
+        }
+        set $site_root /home/wwwroot/$domain;
+        alias $site_root/;
+       
+        types { }
+
+        default_type application/octet-stream;
+        auth_basic "WebDAV Authentication";
+        auth_basic_user_file /home/passwd/.$host;
+        dav_methods PUT DELETE MKCOL COPY MOVE;
+        dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
+        create_full_put_path on;
+        dav_access user:rw group:rw all:r;
+
+        dav_ext_lock zone=webdav_locks;
+    }
+    access_log off;
+}
+EOF
+)
+else
   tmpl=$(cat <<'EOF'
 server{
     listen 80;
@@ -530,14 +651,14 @@ server{
     error_page 403 = @e403;
     location @e403 {
         root html;
-        internal;
+        internal;  
         try_files /403.html =403;
     }
 
     error_page 502 504 404 = @e404;
     location @e404 {
         root html;
-        internal;       
+        internal;
         try_files /404.html =404;
     }
     tcp_nopush on;
@@ -614,8 +735,8 @@ server{
     access_log off;
 }
 EOF
-
 )
+fi
 
 
   local vhost_dir="/usr/local/nginx/vhost"
@@ -659,6 +780,9 @@ EOF
     echo "[vhost][WARN] acme.sh not found, skipping certificate issuance."; issue_cert="n"
   fi
 
+  if [[ "$IS_LAN" -eq 1 ]]; then
+      echo "[env] This is an internal network environment; certificate requests will be skipped."; issue_cert="n"
+  fi
   remove_old_redirects() { 
     sed -i '/# BEGIN AUTO-HTTPS-REDIRECT/,/# END AUTO-HTTPS-REDIRECT/d' "$1" || true
   }
@@ -830,9 +954,12 @@ EOF
       echo "[vhost][HTTPS] Injected: HTTP→HTTPS redirect"
     fi
   else
-    strip_ssl_lines "$conf"
-    inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
-    echo "[vhost][HTTP] Injected: www normalization (HTTP only)"
+    if [[ "$has_www_peer" -eq 1 ]]; then
+       strip_ssl_lines "$conf"
+       inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
+       echo "[vhost][HTTP] Injected: www normalization (HTTP only)"
+    fi
+   
   fi
 
 
@@ -933,7 +1060,10 @@ KERNEL_TUNE_ONLY=0
 
 sshkey() {
   set -euo pipefail
-
+  if [[ "$IS_LAN" -eq 1 ]]; then
+    echo "[env] Currently in an internal network environment; certificate application has been skipped."
+    exit 0
+  fi
   echo
   echo "====================================================================="
   echo "⚠️  Warning: Do NOT disconnect until you've saved the private key to your computer"
@@ -2083,7 +2213,160 @@ EOF
 
     cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
 
-    cat <<'EOF' >  /usr/local/nginx/nginx.conf
+if [[ "$IS_LAN" -eq 1 ]]; then
+cat <<'EOF' >  /usr/local/nginx/nginx.conf
+user  www www;
+worker_processes auto;
+worker_cpu_affinity auto;
+worker_rlimit_nofile 1000000; 
+pid        /usr/local/nginx/nginx.pid;
+
+error_log  /home/wwwlogs/nginx_error.log crit;
+
+events {
+    worker_connections 65535;
+    use epoll;   
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    dav_ext_lock_zone zone=webdav_locks:10m;
+    aio threads;
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout   300s;
+    keepalive_requests  100000;
+
+    proxy_request_buffering on;
+    
+    client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
+    client_max_body_size 0;
+    client_body_buffer_size 8m;
+    client_header_timeout 1800s;
+    client_body_timeout   1800s;
+    send_timeout          1800s;
+
+
+    set_real_ip_from 103.21.244.0/22;
+    set_real_ip_from 103.22.200.0/22;
+    set_real_ip_from 103.31.4.0/22;
+    set_real_ip_from 104.16.0.0/13;
+    set_real_ip_from 104.24.0.0/14;
+    set_real_ip_from 108.162.192.0/18;
+    set_real_ip_from 131.0.72.0/22;
+    set_real_ip_from 141.101.64.0/18;
+    set_real_ip_from 162.158.0.0/15;
+    set_real_ip_from 172.64.0.0/13;
+    set_real_ip_from 173.245.48.0/20;
+    set_real_ip_from 188.114.96.0/20;
+    set_real_ip_from 190.93.240.0/20;
+    set_real_ip_from 197.234.240.0/22;
+    set_real_ip_from 198.41.128.0/17;
+    set_real_ip_from 2400:cb00::/32;
+    set_real_ip_from 2606:4700::/32;
+    set_real_ip_from 2803:f800::/32;
+    set_real_ip_from 2405:b500::/32;
+    set_real_ip_from 2405:8100::/32;
+    set_real_ip_from 2c0f:f248::/32;
+    set_real_ip_from 2a06:98c0::/29;
+    real_ip_header CF-Connecting-IP;
+    real_ip_recursive on;
+
+    gzip on;
+    gzip_min_length 10240;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types
+        text/plain text/css text/xml text/javascript application/javascript
+        application/x-javascript application/xml application/xml+rss
+        application/json application/ld+json application/x-font-ttf
+        font/opentype application/vnd.ms-fontobject image/svg+xml;
+
+    open_file_cache          max=200000 inactive=20s;
+    open_file_cache_valid    30s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors   on;
+
+    fastcgi_connect_timeout 300s;
+    fastcgi_send_timeout    300s;
+    fastcgi_read_timeout    300s;
+    fastcgi_buffer_size     64k;
+    fastcgi_buffers         4 64k;
+    fastcgi_busy_buffers_size 128k;
+    fastcgi_temp_file_write_size 256k;
+
+    server_tokens off;
+
+    upstream lowphp {
+        server unix:/tmp/lowphp.sock;
+        keepalive 100000;
+    }
+    
+
+    server {
+        listen 80 default_server reuseport;
+        server_name _;
+        root  /home/wwwroot/default;
+        index index.html  index.php;
+        error_page 403 = @e403;
+        location @e403 {
+            root html;
+            internal;
+            set $is_allowed_host 1;
+            try_files /403.html =403;
+        }
+
+        error_page 502 504 404 = @e404;
+        location @e404 {
+            root html;
+            internal;
+            set $is_allowed_host 1;
+            try_files /404.html =404;
+        }
+
+        autoindex_exact_size off;
+        autoindex_localtime on;
+
+        location /nginx_status { stub_status off; access_log off; }
+
+        location ~* \.(gif|jpg|jpeg|png|bmp|webp|ico|svg)$ {
+            expires 30d;
+            add_header Cache-Control "public, max-age=2592000, immutable";
+            access_log off;
+        }
+
+        location ~* \.(js|css)$ {
+            expires 12h;
+            add_header Cache-Control "public, max-age=43200";
+            access_log off;
+        }
+        location ^~ /.well-known/ { allow all; }
+        location ~ /\.(?!well-known) {
+            deny all;
+        }
+        location = /phpmyadmin {
+            return 301 /phpmyadmin/;
+        }
+        location ^~ /phpmyadmin/ {
+            include enable-php.conf;
+            auth_basic "WebDAV Authentication";
+            auth_basic_user_file /home/passwd/.default;
+           
+        }
+        
+        access_log off;
+    }
+
+   
+    include vhost/*.conf;
+}
+
+EOF
+
+else
+cat <<'EOF' >  /usr/local/nginx/nginx.conf
 user  www www;
 worker_processes auto;
 worker_cpu_affinity auto;
@@ -2199,6 +2482,13 @@ http {
             try_files /403.html =403;
         }
 
+        error_page 502 504 404 = @e404;
+        location @e404 {
+            root html;
+            internal;
+            set $is_allowed_host 1;
+            try_files /404.html =404;
+        }
         ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
         ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
         ssl_session_timeout 10m;
@@ -2243,9 +2533,8 @@ http {
    
     include vhost/*.conf;
 }
-
-
 EOF
+fi
 
     systemctl daemon-reload
     systemctl enable nginx
@@ -2622,6 +2911,8 @@ EOF
   grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
   echo "[limits] nofile=1000000 & /etc/profile updated"
     echo -e "\033[33m[skip] WSL detected; skipping kernel tuning (wnmp_kernel_tune)...\033[0m"
+    cd /root
+    bash wnmp.sh status
   else
     echo -e "\033[32m[optimize] Running kernel/network optimizations...\033[0m"
     wnmp_kernel_tune
