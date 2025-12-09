@@ -130,9 +130,10 @@ apt install -y curl && curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh && chmod 
 在此电脑任务地址栏定位打开C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup # 请用windows登录的真实账号名代替[username]
 
 新建一个wsl.vbs文件并写入内容：
-
+```bash
 Set ws = CreateObject("Wscript.Shell")
 ws.run "wsl -d debian", 0
+```
 初始化完成后，子系统已安装SSH服务端，根据提示重启电脑后，你可以像正常服务器VPS一样用SSH客户端登录你的wsl debian 子系统
 
 登录地址:127.0.0.1 端口:22
@@ -148,7 +149,7 @@ wsl --unregister # 卸载子系统
 如需要局域网访问子系统，打开C:\Users\[username]目录 # 请用windows登录的真实账号名代替[username]
 
 新建一个.wslconfig文件并写入内容：
-
+```bash
 [wsl2]
 networkingMode=Mirrored
 dnsTunneling=true
@@ -156,6 +157,7 @@ firewall=true
 autoProxy=true
 [experimental]
 hostAddressLoopback=true
+```
 在管理员权限 PowerShell 窗口中运行以下命令,以配置 Hyper-V 防火墙 设置以允许入站连接：
 
 Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow
