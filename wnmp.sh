@@ -3,14 +3,16 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.07
+# Version: 1.08
 
 set -euo pipefail
 
 set +u
 : "${DEBUGINFOD_IMA_CERT_PATH:=}"
 set -u
-
+for v in WSL_DISTRO_NAME WSL_INTEROP WSLENV; do
+  eval "export $v=\"\${$v:-}\""
+done
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -54,33 +56,59 @@ sleep 1
 
 usage() {
   cat <<'USAGE'
-Usage:
-  bash wnmp.sh               # Install normally
-  bash wnmp.sh status        # Show status
-  bash wnmp.sh sshkey        # SSH key login
-  bash wnmp.sh webdav        # Add WebDAV account
-  bash wnmp.sh default       # Default site domain & certificate
-  bash wnmp.sh vhost         # Create virtual host (with certificate)
-  bash wnmp.sh tool          # Kernel/Network tuning only
-  bash wnmp.sh restart       # Restart services
-  bash wnmp.sh remove        # Uninstall
-  bash wnmp.sh renginx       # Uninstallnginx
-  bash wnmp.sh rephp         # Uninstallphp
-  bash wnmp.sh remariadb     # Uninstallmariadb
-  bash wnmp.sh wslinit       # Wsl open SSH Server
-  bash wnmp.sh -h|--help     # Show help
+用法:
+  bash wnmp.sh               # 正常安装
+  bash wnmp.sh status        # 查看状态
+  bash wnmp.sh sshkey        # ssh密钥登录
+  bash wnmp.sh webdav        # 添加webdav账号
+  bash wnmp.sh default       # 默认站点域名与证书
+  bash wnmp.sh vhost         # 创建虚拟主机（含证书）
+  bash wnmp.sh tool          # 仅做内核/网络调优
+  bash wnmp.sh restart       # 重启服务
+  bash wnmp.sh remove        # 卸载
+  bash wnmp.sh renginx       # 卸载nginx
+  bash wnmp.sh rephp         # 卸载php
+  bash wnmp.sh remariadb     # 卸载mariadb
+  bash wnmp.sh wslinit       # wsl开启ssh服务
+  bash wnmp.sh -h|--help     # 查看帮助
 USAGE
 }
 
+
 wslinit(){
 
-  
+  if [ "$(id -u)" -ne 0 ]; then
+  echo "[-] 请用 root 或 sudo 运行："
+  echo "    sudo bash $0"
+  exit 1
+fi
 
+echo "[1/7] 备份原有 sources.list ..."
+if [ -f /etc/apt/sources.list ]; then
+  cp /etc/apt/sources.list /etc/apt/sources.list.bak.$(date +%Y%m%d-%H%M%S)
+fi
+
+echo "[2/7] 写入阿里云 Debian 13 (trixie) 国内源 ..."
+cat >/etc/apt/sources.list <<'EOF'
+deb http://mirrors.aliyun.com/debian/ trixie main contrib non-free non-free-firmware
+deb http://mirrors.aliyun.com/debian/ trixie-updates main contrib non-free non-free-firmware
+deb http://mirrors.aliyun.com/debian/ trixie-backports main contrib non-free non-free-firmware
+deb http://mirrors.aliyun.com/debian-security/ trixie-security main contrib non-free non-free-firmware
+EOF
+
+echo "[2.1/7] 可选：移走 sources.list.d 里的其它源，避免混源 ..."
+if [ -d /etc/apt/sources.list.d ]; then
+  mkdir -p /etc/apt/sources.list.d/backup
+  mv /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/backup/ 2>/dev/null || true
+  mv /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/backup/ 2>/dev/null || true
+fi
+
+echo "[3/7] 更新索引并升级系统 ..."
 export DEBIAN_FRONTEND=noninteractive
 apt update
 apt -y full-upgrade
 
-echo "[4/7] Install common tools and openssh-server ..."
+echo "[4/7] 安装常用工具和 openssh-server ..."
 apt install -y \
   build-essential \
   ca-certificates \
@@ -92,9 +120,10 @@ install -d -m 0755 -o root -g root /run/sshd
 
 ssh-keygen -A
 
+# 确保 CA 证书生效（有些环境会用到 https）
 update-ca-certificates || true
 
-echo "[5/7] Configure SSH: Allow root login + password login ..."
+echo "[5/7] 配置 SSH：允许 root 登录 + 密码登录 ..."
 
 SSHD_CFG="/etc/ssh/sshd_config"
 
@@ -113,22 +142,23 @@ set_sshd_option "PasswordAuthentication" "yes"
 set_sshd_option "PermitEmptyPasswords" "no"
 set_sshd_option "PubkeyAuthentication" "yes"
 
-echo "[6/7] Restart the SSH service ..."
+echo "[6/7] 重启 SSH 服务 ..."
 
+# WSL2 默认没有 systemd，用 service 优先
 if command -v service >/dev/null 2>&1; then
   service sshd restart || true
 fi
 
-
+# 如果系统启用了 systemd，也顺手 enable 一下（物理/云服务器有用）
 if command -v systemctl >/dev/null 2>&1; then
   systemctl enable sshd >/dev/null 2>&1 || true
   systemctl restart sshd >/dev/null 2>&1 || true
 fi
 
-echo "[7/7] Set the root password (please enter the new password twice as prompted) ..."
+echo "[7/7] 设置 root 密码（请按提示输入两遍新密码） ..."
 passwd root
 
-echo "[7.1/7] Set the default user to root (write to /etc/wsl.conf) ..."
+echo "[7.1/7] 设置默认用户为 root（写入 /etc/wsl.conf） ..."
 
 cat >/etc/wsl.conf <<'EOF'
 [boot]
@@ -144,24 +174,30 @@ mkdir -p /run/sshd && sudo chmod 755 /run/sshd
 ssh-keygen -A
 systemctl restart sshd
 echo
-echo "================= Complete ================="
-echo "[OK] System upgraded, common tools and openssh-server installed."
-echo "[OK] SSH root + password login enabled."
+echo "================= 完成 ================="
+echo "[OK] 已切换到阿里云 Debian 13 (trixie) 国内源。"
+echo "[OK] 系统已升级，常用工具和 openssh-server 已安装。"
+echo "[OK] SSH 已允许 root + 密码登录。"
 echo
-echo "Quick tips:"
-echo "  1) In WSL2, if ssh isn't running, start it manually:"
+echo "小提示："
+echo "  1) 在 WSL2 里，如果 ssh 没在跑，可以手动启动："
 echo "       systemctl start sshd"
 echo
-echo "  2) To test connection locally (within WSL):"
+echo "  2) 在本机测试连接（WSL 内部）可以用："
 echo "       ssh root@127.0.0.1"
 echo
-echo "  3) For cloud servers, use:"
-echo "       ssh root@serverIP"
+echo "  3) 如果是云服务器，用："
+echo "       ssh root@服务器IP"
 echo
-echo "  5) Must be paired with a startup script. Restart the physical machine once for normal operation."
+echo "  4) 如需恢复旧源，可看备份："
+echo "       /etc/apt/sources.list.bak.*"
+echo "  5) 一定要配合开机自启动脚本，重启一次硬件电脑后才能正常使用"
+
 echo "========================================"
 
 }
+
+
 
 is_lan() {
   local local_ip
@@ -209,28 +245,28 @@ restart() {
   systemctl restart mariadb
   systemctl --no-pager status mariadb
 
-  echo "Services restarted"
+  echo "服务重启完成"
   exit 0
 }
 
 webdav() {
   local domain user pass passwd_file ans
 
-  read -rp "Enable WebDAV？[y/N] " ans
+  read -rp "是否开启 WebDAV？[y/N] " ans
   ans="${ans:-N}"
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-    echo "[webdav] Skipped."
+    echo "[webdav] 已跳过。"
     return 0
   fi
-
+  
   while :; do
-    read -rp "If the site has multiple domain names, please enter the final redirect domain. (e.g., site.example.com):" domain
+    read -rp "站点存在多个域名的，请输入最终重定向域名（例如：wwww.example.com）:" domain
     [[ -n "$domain" ]] && break
-    echo "[webdav][WARN] Domain cannot be empty。"
+    echo "[webdav][WARN] 域名不能为空。"
   done
 
 
-  read -rp "Enable public directory by default? (No)[y/N] " ans
+  read -rp "是否开启 公开目录默认（否）？[y/N] " ans
   ans="${ans:-N}"
   local enable_public=0
   [[ "$ans" =~ ^[Yy]$ ]] && enable_public=1
@@ -244,7 +280,7 @@ webdav() {
     conf_path="$VHOST_DIR/${domain_lc#www.}.conf"
   fi
   if [[ ! -f "$conf_path" ]]; then
-    echo "[webdav][ERROR] Config not found：$VHOST_DIR/${domain_lc}.conf OR ${domain_lc#www.}.conf"
+    echo "[webdav][ERROR] 未找到配置：$VHOST_DIR/${domain_lc}.conf 或 ${domain_lc#www.}.conf"
     return 1
   fi
 
@@ -256,12 +292,12 @@ webdav() {
   elif [[ -x /usr/sbin/nginx ]]; then
     NGINX_BIN="/usr/sbin/nginx"
   else
-    echo "[webdav][ERROR] Nginx binary not found; consider ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx"
+    echo "[webdav][ERROR] 未找到 nginx 可执行文件；建议 ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx"
     return 1
   fi
 
   backup="${conf_path}.bak-$(date +%Y%m%d-%H%M%S)"
-  cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] Backup failed：$backup"; return 1; }
+  cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] 备份失败：$backup"; return 1; }
 
  
   insert_once() { 
@@ -304,15 +340,15 @@ webdav() {
   if [[ $enable_public -eq 1 ]]; then
   
     sed -i '/^[[:space:]]*include[[:space:]]\+enable-php\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] Removed include enable-php.conf;（Disable PHP execution）"
+    echo "[webdav] 已移除 include enable-php.conf;（禁止 PHP 执行）"
     insert_once "$conf_path" "include download.conf;"
-    echo "[webdav] Ensured include download.conf;"
+    echo "[webdav] 已确保 include download.conf;"
   else
 
     sed -i '/^[[:space:]]*include[[:space:]]\+download\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] Removed include download.conf;"
+    echo "[webdav] 已移除 include download.conf;"
     insert_once "$conf_path" "include enable-php.conf;"
-    echo "[webdav] Ensured include enable-php.conf;"
+    echo "[webdav] 已确保 include enable-php.conf;"
   fi
 
 
@@ -322,9 +358,9 @@ webdav() {
     else
       "$NGINX_BIN" -s reload
     fi
-    echo "[webdav] ✅ Config applied。"
+    echo "[webdav] ✅ 配置已生效。"
   else
-    echo "[webdav][ERROR] nginx -t Failed，Rolling back to：$backup"
+    echo "[webdav][ERROR] nginx -t 失败，回滚到：$backup"
     cp -a "$backup" "$conf_path" >/dev/null 2>&1 || true
     return 1
   fi
@@ -335,25 +371,25 @@ webdav() {
   passwd_file="${passwd_dir}/.${domain}"
 
   while :; do
-    read -rp "Enter WebDAV username：" user
+    read -rp "请输入 WebDAV 账号名称：" user
     [[ -n "$user" ]] && break
-    echo "[webdav][WARN] Username cannot be empty。"
+    echo "[webdav][WARN] 账号不能为空。"
   done
 
-  read -rs -p "Enter WebDAV password：" pass; echo
+  read -rs -p "请输入 WebDAV 密码：" pass; echo
 
   if [[ -f "$passwd_file" ]]; then
-    echo "[webdav] Existing password file detected, appending account..."
+    echo "[webdav] 检测到已存在的密码文件，将追加账号..."
     htpasswd -bB "$passwd_file" "$user" "$pass"
   else
-    echo "[webdav] No password file found, creating..."
+    echo "[webdav] 未发现密码文件，正在创建..."
     htpasswd -cbB "$passwd_file" "$user" "$pass"
   fi
- 
+
   chown www:www "$passwd_file" 2>/dev/null || true
   chmod 640 "$passwd_file" 2>/dev/null || true
 
-  echo "[webdav] ✅ Account written：$user -> $passwd_file"
+  echo "[webdav] ✅ 已写入账号：$user -> $passwd_file"
 }
 
 
@@ -362,37 +398,37 @@ webdav() {
 
 
 default() {
-if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
-if [[ "$IS_LAN" -eq 1 ]]; then
-  red "[env] This is an internal network environment; certificate requests will be skipped."
+  if [[ "$IS_LAN" -eq 1 ]]; then
+    red "[env] 当前为内网环境，将跳过证书申请。"
+    read -rp "是否强制申请证书？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] 已选择强制申请证书。"
+      IS_LAN=0
+    else
+      red "[env] 保持跳过证书申请。"
+    fi
+  else
+    green "[env] 检测到公网环境，可正常申请证书。"
+  fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+  red "[env] 当前为内网环境，将跳过证书申请。"
   exit 0
-fi
-  read -rp "[STEP1] Enter domain: " DOMAIN_LINE
+  fi
+  read -rp "[STEP1] 请输入域名: " DOMAIN_LINE
   if [[ -z "$DOMAIN_LINE" ]]; then
     
-    echo "[WARN] Domain cannot be empty"
+    echo "[WARN] 域名不能为空"
     return 0
   else
-    echo "[STEP1] Input domain: ${DOMAIN_LINE}"
+    echo "[STEP1] 输入域名: ${DOMAIN_LINE}"
   fi
 
   FIRST_DOMAIN=$(echo "$DOMAIN_LINE" | awk '{print $1}')
   MAP_REGEX=$(printf "%s" "$DOMAIN_LINE" | sed -e 's/\./\\./g' -e 's/[[:space:]]\+/\|/g')
   MAP_REGEX="^(${MAP_REGEX})$"
 
-  echo "[STEP2] Write nginx.conf + inject map"
+  echo "[STEP2] 写 nginx.conf + 注入 map"
   
 
   cat >/usr/local/nginx/nginx.conf <<'NGINX_CONF'
@@ -515,7 +551,6 @@ http {
             add_header Content-Type "text/html; charset=utf-8";
             try_files /404.html =404;
         }
-        
         ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
         ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
         ssl_session_cache   shared:SSL:20m;
@@ -563,9 +598,9 @@ http {
 NGINX_CONF
 
   sed -i "s#__MAP_BLOCK_PLACEHOLDER__#map \$host \$is_allowed_host {\n        default 0;\n        ~\\(${MAP_REGEX}\\) 1;\n    }#g" /usr/local/nginx/nginx.conf
-  echo "[STEP2] map Regular:${MAP_REGEX}"
+  echo "[STEP2] map 正则：${MAP_REGEX}"
 
-  echo "[STEP4] Detect acme.sh"
+  echo "[STEP4] 探测 acme.sh"
   ACME_HOME="${ACME_HOME:-$HOME/.acme.sh}"
   ACME_BIN=""
   if command -v acme.sh >/dev/null 2>&1; then
@@ -574,7 +609,7 @@ NGINX_CONF
     ACME_BIN="$ACME_HOME/acme.sh"
   fi
   if [ -z "$ACME_BIN" ]; then
-    echo "[STEP4] Install acme.sh ..."
+    echo "[STEP4] 安装 acme.sh ..."
     curl -fsSL https://get.acme.sh | sh
     ACME_BIN="$HOME/.acme.sh/acme.sh"
     ACME_HOME="$HOME/.acme.sh"
@@ -583,9 +618,9 @@ NGINX_CONF
   echo "[STEP4] ACME_HOME=$ACME_HOME"
   "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
 
-  echo "[STEP5] Read CF credentials (env first, then account.conf)"
+  echo "[STEP5] 读取 CF 凭据（环境优先，其次 account.conf）"
   token_file="$ACME_HOME/account.conf"
-  [ -f "$token_file" ] && echo "[STEP5] account.conf: $token_file exists" || echo "[STEP5] account.conf: no exists"
+  [ -f "$token_file" ] && echo "[STEP5] account.conf: $token_file 存在" || echo "[STEP5] account.conf: 不存在"
 
 
   CF_Token_val="${CF_Token-}"
@@ -621,10 +656,10 @@ NGINX_CONF
   echo "[STEP5] CF_Email: $( [ -n "$CF_Email_val" ] && printf "%s"        "$CF_Email_val"            || echo "<none>" )"
   echo "[STEP5] DNS_CF_OK: $DNS_CF_OK"
 
-  echo "[STEP6] Attempt to issue ($FIRST_DOMAIN, EC-256)" 
+  echo "[STEP6] 尝试签发 ($FIRST_DOMAIN, EC-256)"
   CF_OK=0
   if [ "$DNS_CF_OK" -eq 1 ]; then
-    echo "[STEP6-DNS] Use Cloudflare DNS（dns_cf）"
+    echo "[STEP6-DNS] 使用 Cloudflare DNS（dns_cf）"
     if [ -n "$CF_Token_val" ]; then
       CF_Token="$CF_Token_val" \
       "$ACME_BIN" --issue --dns dns_cf -d "$FIRST_DOMAIN" --keylength ec-256 --force  || true
@@ -634,52 +669,51 @@ NGINX_CONF
       "$ACME_BIN" --issue --dns dns_cf -d "$FIRST_DOMAIN" --keylength ec-256 --force  || true
       [ $? -eq 0 ] && CF_OK=1
     fi
-    [ "$CF_OK" -eq 1 ] && echo "[STEP6-DNS] Succeeded" || echo "[STEP6-DNS] Failed，Prepare webroot decline" 
+    [ "$CF_OK" -eq 1 ] && echo "[STEP6-DNS] 成功" || echo "[STEP6-DNS] 失败，准备 webroot 回落"
   else
-    echo "[STEP6] No CF credentials or missing dns_cf.sh, fallback to webroot"
+    echo "[STEP6] 无可用 CF 凭据或缺少 dns_cf.sh，直接 webroot"
   fi
 
   if [ "$CF_OK" -ne 1 ]; then
     echo "[STEP6-WEBROOT] --webroot /home/wwwroot/default"
     "$ACME_BIN" --issue -w /home/wwwroot/default -d "$FIRST_DOMAIN" --keylength ec-256 --force  || {
-      echo "[ERROR] webroot Application Failed"; return 2; 
+      echo "[ERROR] webroot 申请失败"; return 2;
     }
   fi
 
-  echo "[STEP7] Install certificate to fixed path and reload"
+  echo "[STEP7] 安装证书到固定路径并 reload"
   "$ACME_BIN" --install-cert -d "$FIRST_DOMAIN" --ecc \
     --key-file       /usr/local/nginx/ssl/default/key.pem \
     --fullchain-file /usr/local/nginx/ssl/default/cert.pem \
     --reloadcmd     '/usr/local/nginx/sbin/nginx -t && /usr/local/nginx/sbin/nginx -s reload' || {
-      echo "[ERROR] Installation/Reload Failed"; return 3; 
+      echo "[ERROR] 安装/重载失败"; return 3;
     }
 
-  echo "[DONE] Default site certificate is ready：/usr/local/nginx/ssl/default/{cert.pem,key.pem}"
+  echo "[DONE] 默认站点证书已就绪：/usr/local/nginx/ssl/default/{cert.pem,key.pem}"
 }
 
 
 
 vhost() {
-if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+    red "[env] 当前为内网环境，将跳过证书申请。"
+    read -rp "是否强制申请证书？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] 已选择强制申请证书。"
+      IS_LAN=0
+    else
+      red "[env] 保持跳过证书申请。"
+    fi
+  else
+    green "[env] 检测到公网环境，可正常申请证书。"
+  fi
   if ! (echo $BASH_VERSION >/dev/null 2>&1); then
-    echo "[vhost][ERROR] Please run this script with bash."; return 1
+    echo "[vhost][ERROR] 请用 bash 执行此脚本。"; return 1
   fi
   set -euo pipefail
 
   local tmpl
-
 
 if [[ "$IS_LAN" -eq 1 ]]; then
  tmpl=$(cat <<'EOF'
@@ -709,7 +743,6 @@ server{
         add_header Content-Type "text/html; charset=utf-8";
         try_files /404.html =404;
     }
-
     tcp_nopush on;
     tcp_nodelay on;
     include enable-php.conf;
@@ -821,6 +854,7 @@ server{
     ssl_session_tickets off;
     ssl_stapling on;
     ssl_stapling_verify on;
+
     location ~* /(low)/                 { deny all; }
     location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
     location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
@@ -887,6 +921,7 @@ EOF
 fi
 
 
+
   local vhost_dir="/usr/local/nginx/vhost"
   local webroot_base="/home/wwwroot"
   local owner="www:www"
@@ -903,8 +938,9 @@ fi
 
 
   local DOMAINS=()
-  read -rp "Please enter the domain names to create (multiple entries allowed, separated by spaces).： " -a DOMAINS
-  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] No domain entered. Quitting."; return 1; }
+  read -rp "请输入要创建的域名（可多个，空格分隔）： " -a DOMAINS
+  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] 未输入域名，退出。"; return 1; }
+
   local _filtered=()
   local d
   for d in "${DOMAINS[@]}"; do
@@ -912,7 +948,7 @@ fi
     [[ -n "$d" ]] && _filtered+=("$d")
   done
   DOMAINS=("${_filtered[@]}")
-  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] No valid domains provided, exiting."; return 1; }
+  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] 未输入有效域名，退出。"; return 1; }
 
   local primary="${DOMAINS[0]}"
   local others=()
@@ -921,16 +957,16 @@ fi
 
   local issue_cert="n"
   local ans
-  read -rp "Issue certificates for these domains now?[Y/n] " ans
+  read -rp "是否现在为这些域名申请证书？[Y/n] " ans
   ans="${ans:-Y}"
   [[ "$ans" == [Yy] ]] && issue_cert="y"
   if [[ "$issue_cert" == "y" && -z "$acme_bin" ]]; then
-    echo "[vhost][WARN] acme.sh not found, skipping certificate issuance."; issue_cert="n"
+     echo "[vhost][WARN] 未检测到 acme.sh，将跳过证书签发。"; issue_cert="n"
+  fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+      echo "[env] 当前为内网环境，将跳过证书申请。"; issue_cert="n"
   fi
 
-  if [[ "$IS_LAN" -eq 1 ]]; then
-      echo "[env] This is an internal network environment; certificate requests will be skipped."; issue_cert="n"
-  fi
   remove_old_redirects() { 
     sed -i '/# BEGIN AUTO-HTTPS-REDIRECT/,/# END AUTO-HTTPS-REDIRECT/d' "$1" || true
   }
@@ -1029,7 +1065,7 @@ EOF
 
   mkdir -p "$site_root/.well-known/acme-challenge"
   chown -R "$owner" "$site_root"
-  echo "[vhost] Generated config file：$conf"
+  echo "[vhost] 已生成配置：$conf"
 
 
   get_cf_token() {
@@ -1050,9 +1086,9 @@ EOF
   local cert_success=0
   if [[ "$issue_cert" == "y" ]]; then
     bash "$acme_home/acme.sh" --set-default-ca --server letsencrypt || true
-    read -rp "Have these domains pointed to this server IP? (type yes to confirm): " ans
+    read -rp "是否已解析域名到本机IP？(输入 yes 确认): " ans
     if [[ "${ans,,}" != "yes" ]]; then
-      echo "[safe] Operation cancelled. No changes made."; return 0
+      echo "[safe] 已取消操作。未作任何更改。"; return 0
     fi
 
     local CF_Token_val="" dns_cf_ok=0
@@ -1064,12 +1100,12 @@ EOF
     mkdir -p "$ssl_dir"
     local -a args
     if [[ $dns_cf_ok -eq 1 ]]; then
-      echo "[vhost][ISSUE] Issuing for all domains using dns_cf..."
+      echo "[vhost][ISSUE] 使用 dns_cf 为所有域名一次性签发..."
       args=( --issue --dns dns_cf -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
       CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
     else
-      echo "[vhost][ISSUE] Issuing for all domains using webroot..."
+      echo "[vhost][ISSUE] 使用 webroot 为所有域名一次性签发..."
       args=( --issue -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
       args+=( --webroot "$site_root" --keylength ec-256 --debug 2 )
@@ -1084,11 +1120,11 @@ EOF
 
     if [[ -s "$ssl_dir/key.pem" && -s "$ssl_dir/cert.pem" ]]; then
       cert_success=1
-      echo "[vhost][OK] Certificate is ready：$primary -> $ssl_dir"
+      echo "[vhost][OK] 证书就绪：$primary -> $ssl_dir"
       ensure_https_core "$conf"
       update_ssl_paths_single_dir "$conf" "$ssl_dir"
     else
-      echo "[vhost][WARN] Certificate issuance did not succeed and will be treated as no certificate requested." 
+      echo "[vhost][WARN] 证书签发未成功，将按“未申请证书”处理。"
     fi
   fi
 
@@ -1096,35 +1132,36 @@ EOF
   if [[ "$cert_success" -eq 1 ]]; then
     if [[ "$has_www_peer" -eq 1 ]]; then
       inject_after_server_name "$conf" "$REDIR_WWW_SSL"
-      echo "[vhost][HTTPS] Injected: force www + single redirect (includes HTTP→HTTPS)"
+      echo "[vhost][HTTPS] 注入：强制 www + 单次跳转（含 HTTP→HTTPS）"
     else
       inject_after_server_name "$conf" "$REDIR_PLAIN_SSL"
-      echo "[vhost][HTTPS] Injected: HTTP→HTTPS redirect"
+      echo "[vhost][HTTPS] 注入：HTTP→HTTPS 跳转"
     fi
   else
     if [[ "$has_www_peer" -eq 1 ]]; then
-       strip_ssl_lines "$conf"
-       inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
-       echo "[vhost][HTTP] Injected: www normalization (HTTP only)"
+      strip_ssl_lines "$conf"
+      inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
+      echo "[vhost][HTTP] 注入：仅 HTTP 下的 www 规范化"
+
     fi
-   
+    
   fi
 
 
   if /usr/local/nginx/sbin/nginx -t; then
     /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx
-    echo "[vhost] Nginx reloaded."
+    echo "[vhost] Nginx 已重载。"
   else
-    echo "[vhost][ERROR] nginx configuration check failed."; return 1 
+    echo "[vhost][ERROR] nginx 配置检查失败。"; return 1
   fi
 
   if [[ "$cert_success" -eq 1 ]]; then
     webdav
   else
-    echo "[vhost][INFO] Skip WebDAV (due to certificate not enabled/failed to issue)." 
+    echo "[vhost][INFO] 跳过 webdav（因未开启/未成功签发证书）。"
   fi
 
-  echo "[vhost] Done."
+  echo "[vhost] 完成。"
 }
 
 
@@ -1176,13 +1213,14 @@ purge_mariadb() {
   fi
 
   if [ "$has_mariadb_service" -eq 0 ] && [ "$has_mariadb_bins" -eq 0 ] && [ "$has_mysql_datadir" -eq 0 ]; then
-    echo "[mariadb] No MariaDB components found — skipping backup and cleanup."
+    echo "[mariadb] 未发现 MariaDB 相关组件，跳过备份与清理。"
   else
-
+ 
     backup_done=0
     ts="$(date +%Y%m%d_%H%M%S)"
     backup_file="/home/all_databases_backup_${ts}.sql.gz"
 
+   
     mysql_cmd_base=(mysql --connect-timeout=3 --protocol=SOCKET -uroot)
     mysqldump_cmd_base=(mysqldump --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
 
@@ -1192,9 +1230,10 @@ purge_mariadb() {
     fi
 
     if ! "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
+    
       mysql_cmd_base=(mysql -h127.0.0.1 -P3306 -uroot --connect-timeout=3)
       mysqldump_cmd_base=(mysqldump -h127.0.0.1 -P3306 -uroot --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
-
+     
       if [ -f /root/.my.cnf ]; then
         mysql_cmd_base=(mysql --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --connect-timeout=3)
         mysqldump_cmd_base=(mysqldump --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
@@ -1202,25 +1241,26 @@ purge_mariadb() {
     fi
 
     if "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
-      echo "[backup] Detected a running MariaDB instance — starting full database backup: ${backup_file}"
+      echo "[backup] 检测到可用的 MariaDB，开始全库备份：${backup_file}"
       mkdir -p /home
-
+    
       if command -v ionice >/dev/null 2>&1; then
         ionice -c2 -n7 nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
       else
         nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
       fi
-
+    
       if [ -s "${backup_file}" ]; then
-        echo "[backup] Backup completed successfully: ${backup_file}"
+        echo "[backup] 备份完成：${backup_file}"
         backup_done=1
       else
-        echo "[backup][WARN] Backup file is empty — possible backup failure: ${backup_file}"
+        echo "[backup][WARN] 备份文件为空，可能备份失败：${backup_file}"
       fi
     else
-      echo "[backup][WARN] Unable to connect to MariaDB — skipping backup (no root credentials or service unavailable)."
+      echo "[backup][WARN] 无法连接 MariaDB，跳过备份（可能无 root 凭据或服务未就绪）。"
     fi
 
+   
     echo "Purging MariaDB (if any)..."
     systemctl stop mariadb 2>/dev/null || true
     systemctl stop mysql 2>/dev/null || true
@@ -1237,9 +1277,9 @@ purge_mariadb() {
     apt autoremove -y 2>/dev/null || true
 
     if [ "$backup_done" -eq 1 ]; then
-      echo "[done] MariaDB has been purged. Backup saved at: ${backup_file}"
+      echo "[done] MariaDB 已清理，备份保存在：${backup_file}"
     else
-      echo "[done] MariaDB has been purged (no backup created or backup failed)."
+      echo "[done] MariaDB 已清理（未生成备份或备份失败）。"
     fi
   fi
 }
@@ -1250,27 +1290,27 @@ remove(){
   purge_nginx
   purge_php
   purge_mariadb
-  echo "nginx,php,mariadbhas been fully removed"
+  echo "nginx,php,mariadb已全部清理干净"
   exit 0
 
 }
 renginx(){
   purge_nginx
-  echo "nginxhas been removed"
+  echo "nginx已清理干净"
   exit 0
 
 }
 
 rephp(){
   purge_php
-  echo "phphas been removed"
+  echo "php已清理干净"
   exit 0
 
 }
 
 remariadb(){
   purge_mariadb
-  echo "mariadbhas been removed"
+  echo "mariadb已清理干净"
   exit 0
 
 }
@@ -1283,33 +1323,33 @@ KERNEL_TUNE_ONLY=0
 
 
 sshkey() {
-if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+    red "[env] 当前为内网环境，将跳过证书申请。"
+    read -rp "是否强制申请证书？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] 已选择强制申请证书。"
+      IS_LAN=0
+    else
+      red "[env] 保持跳过证书申请。"
+    fi
+  else
+    green "[env] 检测到公网环境，可正常申请证书。"
+  fi
   set -euo pipefail
   if [[ "$IS_LAN" -eq 1 ]]; then
-    echo "[env] Currently in an internal network environment; certificate application has been skipped."
+    echo "[env] 当前为内网环境，已跳过证书申请。"
     exit 0
   fi
   echo
   echo "====================================================================="
-  echo "⚠️  Warning: Do NOT disconnect until you've saved the private key to your computer"
-  echo "⚠️  Do not disconnect this SSH session, or you may lose access!"
+  echo "⚠️  强提醒：在你确认【已把私钥保存到你自己的电脑】之前"
+  echo "⚠️  请不要断开当前 SSH 会话，否则你将无法再次登录服务器！"
   echo "====================================================================="
   echo
-  read -rp "Proceed to enable key-only login for root? (type yes to confirm): " ans
+  read -rp "是否继续执行并启用仅 root 密钥登录？(输入 yes 确认): " ans
   if [[ "${ans,,}" != "yes" ]]; then
-    echo "[safe] Operation cancelled. No changes made."
+    echo "[safe] 已取消操作。未作任何更改。"
     return 0
   fi
 
@@ -1320,7 +1360,7 @@ fi
   fi
   [[ -z "${SSHD_BIN}" && -x /sbin/sshd ]] && SSHD_BIN="/sbin/sshd"
   if [[ -z "${SSHD_BIN}" ]]; then
-    echo "[safe][ERROR] sshd binary not found. Please install openssh-server."
+    echo "[safe][ERROR] 未找到 sshd 可执行文件，请先安装 openssh-server。"
     return 1
   fi
 
@@ -1341,13 +1381,13 @@ fi
   local OVR_FILE="${OVR_DIR}/zzz-root-keys-only.conf"
   local OVR_BACKUP_DIR="/etc/ssh/sshd_config.d.bak-${NOW}"
 
-  echo "[safe] Configuring key-only login for root..."
+  echo "[safe] 正在为 root 用户配置【仅密钥登录】..."
 
 
   if grep -Eq '^[[:space:]]*ClientAliveInterval[[:space:]]+[0-9]+[[:space:]]+[^#]+' "$SSHD_MAIN"; then
     cp -a "$SSHD_MAIN" "${SSHD_MAIN}.prelint-${NOW}"
     sed -i -E 's/^([[:space:]]*ClientAliveInterval)[[:space:]]+[0-9]+.*/\1 120/' "$SSHD_MAIN"
-    echo "[safe] Fixed invalid trailing annotation: normalized 'ClientAliveInterval 120'"
+    echo "[safe] 已修复非法尾注：ClientAliveInterval 行已归一化为 'ClientAliveInterval 120'"
   fi
 
 
@@ -1357,16 +1397,16 @@ fi
 
 
   if ! ls /etc/ssh/ssh_host_*key >/dev/null 2>&1; then
-    echo "[safe] No host keys found, generating (ssh-keygen -A)..."
+    echo "[safe] 未发现主机 HostKeys，正在生成（ssh-keygen -A）..."
     ssh-keygen -A
   fi
 
 
   local PASSPHRASE_OPT=""
   echo
-  read -rp "Add a passphrase to the new key (will be required on login)?[y/N]: " setpass
+  read -rp "是否为新密钥添加口令保护（登录时需输入该口令）？[y/N]: " setpass
   if [[ "${setpass,,}" =~ ^(y|yes)$ ]]; then
-    echo "[safe] A passphrase will be set for the new key..."
+    echo "[safe] 将为新密钥设置口令..."
     PASSPHRASE_OPT="-N"
   else
     PASSPHRASE_OPT="-N \"\""
@@ -1374,12 +1414,12 @@ fi
 
  
   if [[ -f "${PRIV_KEY}" || -f "${PUB_KEY}" ]]; then
-    echo "[safe] Existing root keypair detected, backing up..."
+    echo "[safe] 检测到已有 root 密钥对，备份中..."
     [[ -f "${PRIV_KEY}" ]] && mv -f "${PRIV_KEY}" "${PRIV_KEY}.bak-${NOW}"
     [[ -f "${PUB_KEY}"  ]] && mv -f "${PUB_KEY}"  "${PUB_KEY}.bak-${NOW}"
   fi
 
-  echo "[safe] Generating ED25519 keypair..."
+  echo "[safe] 生成 ED25519 密钥对..."
   if [[ "${PASSPHRASE_OPT}" == "-N" ]]; then
     ssh-keygen -t ed25519 -a 100 -C "${COMMENT}" -f "${PRIV_KEY}"
   else
@@ -1400,13 +1440,13 @@ fi
 
 
   cp -a "${SSHD_MAIN}" "${SSHD_BAK}"
-  echo "[safe] Backed up main config：${SSHD_BAK}"
+  echo "[safe] 已备份主配置：${SSHD_BAK}"
 
   mkdir -p "${OVR_DIR}"
   if [ "$(find "${OVR_DIR}" -type f | wc -l)" -gt 0 ]; then
     mkdir -p "${OVR_BACKUP_DIR}"
     find "${OVR_DIR}" -maxdepth 1 -type f -print -exec mv -f {} "${OVR_BACKUP_DIR}/" \;
-    echo "[safe] Backed up and emptied /etc/ssh/sshd_config.d -> ${OVR_BACKUP_DIR}"
+    echo "[safe] 已备份并清空 /etc/ssh/sshd_config.d -> ${OVR_BACKUP_DIR}"
   fi
 
 
@@ -1426,10 +1466,10 @@ EOF
   grep -Eq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' "$SSHD_MAIN" || sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' "$SSHD_MAIN"
 
 
-  echo "[safe] Checking sshd config syntax (${SSHD_BIN} -t)..."
+  echo "[safe] 检测 sshd 配置语法 (${SSHD_BIN} -t)..."
   if ! err="$("${SSHD_BIN}" -t 2>&1)"; then
-    echo "[safe][ERROR] sshd -t Failed："; echo "$err"
-    echo "[safe] Rolling back..."
+    echo "[safe][ERROR] sshd -t 失败："; echo "$err"
+    echo "[safe] 回滚中..."
     rm -f "${OVR_FILE}" || true
     mv -f "${SSHD_BAK}" "${SSHD_MAIN}"
     if [ -d "${OVR_BACKUP_DIR}" ]; then
@@ -1451,15 +1491,15 @@ EOF
 
 
   echo
-  echo "[safe] Public key fingerprint (SHA256)："
+  echo "[safe] 公钥指纹（SHA256）："
   ssh-keygen -lf "${PUB_KEY}" -E sha256 | awk '{print " - "$0}'
   echo
-  echo "==================  Copy the PRIVATE KEY content below to your local file (e.g., save as test.key; import into your SSH client to login as root by key).  =================="
+  echo "==================  复制以下【私钥文件内容】到你本地(保存为例子:test.key,导入到例子xshell等客户端后可以root密钥登录)  =================="
   cat "${PRIV_KEY}"
   echo
-  echo "==================  End of copy  ================="
+  echo "==================  复制结束  ================="
   echo
-  echo "[safe] One-line private key (stored on server at${AUTH_KEYS}）："
+  echo "[safe] 一行版私钥（已存入服务器${AUTH_KEYS}）："
   if base64 --help 2>&1 | grep -q -- "-w"; then
     base64 -w0 "${PRIV_KEY}"
   else
@@ -1468,11 +1508,11 @@ EOF
  
   local SERVER_IP
   SERVER_IP="$(ip -o -4 addr show | awk '!/ lo / && /inet /{gsub(/\/.*/,"",$4); print $4; exit}')"
-  echo "[safe] Test command：ssh -i ~/.ssh/${KEY_NAME} root@<SERVER>"
-  [[ -n "${SERVER_IP:-}" ]] && echo "      Current server IP：${SERVER_IP}"
+  echo "[safe] 测试命令：ssh -i ~/.ssh/${KEY_NAME} root@<SERVER>"
+  [[ -n "${SERVER_IP:-}" ]] && echo "      当前服务器 IP：${SERVER_IP}"
   echo
-  echo "[safe] Enabled: root can login by key only."
-  echo "[safe] To revert：mv -f ${SSHD_BAK} ${SSHD_MAIN} && systemctl restart ssh"
+  echo "[safe] 已启用：仅允许 root 使用密钥登录。"
+  echo "[safe] 若需回退：mv -f ${SSHD_BAK} ${SSHD_MAIN} && systemctl restart ssh"
 }
 
 
@@ -1497,23 +1537,23 @@ for arg in "$@"; do
      remariadb) remariadb; exit 0 ;;
      wslinit) wslinit; exit 0 ;;
      "") ;;
-     *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
+     *) echo "[setup] 未知参数: ${arg}"; usage; exit 1 ;;
    esac
  done
 
 if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
+    red "[env] 当前为内网环境，将跳过证书申请。"
+    read -rp "是否强制申请证书？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] 已选择强制申请证书。"
+      IS_LAN=0
+    else
+      red "[env] 保持跳过证书申请。"
+    fi
+  else
+    green "[env] 检测到公网环境，可正常申请证书。"
+  fi
 
 
 MYSQL_PASS='needpasswd'
@@ -1556,7 +1596,7 @@ wnmp_kernel_tune() {
 
   install -d "$(dirname "$SYSCTL_FILE")" 2>/dev/null || true
   if [ ! -f "$SYSCTL_FILE" ]; then
-    echo "[sysctl] create ${SYSCTL_FILE}"
+    echo "[sysctl] 创建 ${SYSCTL_FILE}"
     printf '# created by wnmp setup\n' > "$SYSCTL_FILE"
   fi
 
@@ -1593,7 +1633,7 @@ EOF
     echo "$SECTION_TAG_END"
   } >> "$SYSCTL_FILE"
 
-  echo "[sysctl] Optimized block to: $SYSCTL_FILE"
+  echo "[sysctl] 已写入优化区块到: $SYSCTL_FILE"
 
 
   if [ -d /sys/kernel/mm/transparent_hugepage ]; then
@@ -1614,14 +1654,14 @@ WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
     systemctl enable disable-thp.service >/dev/null 2>&1 || true
-    echo "[thp] THP has been disabled and set to take effect at startup." 
+    echo "[thp] THP 已关闭并设置为开机生效"
   fi
 
 
   modprobe tcp_bbr 2>/dev/null || true
 
 
-  echo "[sysctl] Reloading kernel parameters..."
+  echo "[sysctl] 正在重新加载内核参数..."
   if [[ "$SYSCTL_FILE" == */sysctl.conf ]]; then
     sysctl -p || true
   else
@@ -1634,15 +1674,15 @@ UNIT
 *               hard    nofile           1000000
 EOF
   grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
+  echo "[limits] nofile=1000000 & /etc/profile 已更新"
 
   
 
-  echo -e "\033[32mKernel/Network tuning only is complete（Includes BBR/fq, THP disabled, limits configuration）\033[0m" 
-    read -rp "A reboot is recommended to apply all settings. Reboot now?? [Y/n] " yn
+  echo -e "\033[32m仅内核/网络调优已完成（含 BBR/fq、THP 关闭、limits 设置）\033[0m"
+    read -rp "需要重启以确保全部生效，是否现在重启? [Y/n] " yn
     [ -z "${yn:-}" ] && yn="y"
     if [[ "$yn" =~ ^([yY]|[yY][eE][sS])$ ]]; then
-      echo "Rebooting......"
+      echo "重启中..."
       reboot
     fi
 }
@@ -1660,14 +1700,14 @@ if [ "$KERNEL_TUNE_ONLY" -eq 1 ]; then
 *               hard    nofile           1000000
 EOF
   grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
-    echo -e "\033[33m[skip] WSL detected; skipping kernel tuning (wnmp_kernel_tune)...\033[0m"
+  echo "[limits] nofile=1000000 & /etc/profile 已更新"
+    echo -e "\033[33m[skip] 检测到 WSL 环境，跳过内核优化 (wnmp_kernel_tune)...\033[0m"
   else
-    echo -e "\033[32m[optimize] Running kernel/network optimizations...\033[0m"
+    echo -e "\033[32m[optimize] 执行内核/网络优化...\033[0m"
     wnmp_kernel_tune
   fi
  
-  echo -e "${GREEN}Kernel/Network tuning only is complete${NC}"
+  echo -e "${GREEN}仅内核/网络调优已完成${NC}"
   exit 0
 fi
 
@@ -1695,15 +1735,15 @@ ensure_user() {
 
 if ! grep -q '/usr/local/php/bin' /etc/profile; then
   cp /etc/profile /etc/profile.bak
-  sed -i '/^# The following global variables added by the script:$/,+1d' /etc/profile || true
+  sed -i '/^# 以下由脚本添加的全局变量$/,+1d' /etc/profile || true
   cat >> /etc/profile << 'EOF'
 export PATH="/usr/local/php/bin:/usr/local/mariadb/bin:$PATH"
 EOF
-  echo -e "${GREEN}Written /etc/profile${NC}"
+  echo -e "${GREEN}已写入 /etc/profile${NC}"
 
   source /etc/profile
 else
-  echo -e "${GREEN}The global variable already exists.${NC}"
+  echo -e "${GREEN}已存在全局变量${NC}"
 fi
 
 PHP="/usr/local/php/bin/php"
@@ -1719,17 +1759,17 @@ pecl_build_from_source() {
   )
 
   /usr/local/php/bin/pecl -d allow_url_fopen=On download "$EXT" || {
-    echo "[${EXT}] pecl download failed, attempting to retrieve via curl..."
+    echo "[${EXT}] pecl download 失败，尝试 curl 获取..."
     curl -fL -o "${EXT}.tgz" "https://pecl.php.net/get/${EXT}" || {
-      echo "[${EXT}] Failed to retrieve source code"; return 1; } 
+      echo "[${EXT}] 获取源码失败"; return 1; }
   }
 
   local TGZ
   TGZ="$(ls -t ${EXT}-*.tgz | head -n1)"
-  [ -n "${TGZ:-}" ] || { echo "[${EXT}] Source package not found"; return 1; }
+  [ -n "${TGZ:-}" ] || { echo "[${EXT}] 未找到源码包"; return 1; }
   rm -rf "${TGZ%.tgz}"
   tar xf "$TGZ"
-  cd "${TGZ%.tgz}" || { echo "[${EXT}] Accessing the source code directory failed."; return 1; } 
+  cd "${TGZ%.tgz}" || { echo "[${EXT}] 进入源码目录失败"; return 1; }
 
   $PHPIZE
   ./configure "${CONF_OPTS[@]}"
@@ -1741,11 +1781,11 @@ pecl_build_from_source() {
   fi
   make install
   cd ..
-  echo "[${EXT}] Build completed"
+  echo "[${EXT}] 构建完成"
 }
 
 if [ -f /root/.pearrc ] || [ -f /usr/local/php/etc/pear.conf ]; then
-  echo -e "${RED}Old PEAR config found; removing to avoid PEAR/PECL errors...${NC}"
+  echo -e "${RED}检测到旧的 PEAR 配置文件，自动删除以避免 PEAR/PECL 报错...${NC}"
   rm -f /root/.pearrc /usr/local/php/etc/pear.conf
 fi
 
@@ -1780,35 +1820,35 @@ sysctl -p /etc/sysctl.d/99-swap.conf || true
 log "Current swap status:"; swapon --show || true; free -h || true
 
 
-echo "Please select PHP version:" 
+echo "请选择PHP版本:"
 php_version='0'
-select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
+select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
-    "Do not install PHP") php_version='0'; break ;;
+    "不安装php") php_version='0'; break ;;
     "php8.2") php_version='8.2.29'; break ;;
     "php8.3") php_version='8.3.28'; break ;;
     "php8.4") php_version='8.4.15'; break ;;
     "php8.5") php_version='8.5.0'; break ;;
-    *) echo "Invalid option $REPLY" ;; 
+    *) echo "无效选项 $REPLY";;
   esac
 done
 
-echo "Select MariaDB version:"
+echo "请选择mariadb版本:"
 mariadbselcect=''
 mariadb_version='0'
-select mariadbselcect in "Do not install MariaDB" "1GBMemory10.6" "2GBThe above memory10.11"; do
+select mariadbselcect in "不安装mariadb" "1GB内存10.6" "2GB以上内存10.11"; do
   case $mariadbselcect in
-    "Do not install MariaDB") mariadb_version='0'; break ;;
-    "1GBMemory10.6") mariadb_version='10.6.24'; break ;;
-    "2GBThe above memory10.11") mariadb_version='10.11.15'; break ;;
-    *) echo "Invalid option $REPLY";; 
+    "不安装mariadb") mariadb_version='0'; break ;;
+    "1GB内存10.6") mariadb_version='10.6.24'; break ;;
+    "2GB以上内存10.11") mariadb_version='10.11.15'; break ;;
+    *) echo "无效选项 $REPLY";;
   esac
 done
 if [ "$mariadb_version" != "0" ]; then
-  read -p "Enter MySQL root password [Default: needpasswd]: " MYSQL_PASS 
+  read -p "请输入要设置的 MySQL root 密码 [默认: needpasswd]: " MYSQL_PASS
   MYSQL_PASS=${MYSQL_PASS:-needpasswd}
 fi
-read -rp "Install NGINX?(y/n): " choosenginx
+read -rp "是否安装NGINX？(y/n): " choosenginx
 
 
 apt --fix-broken install -y
@@ -1835,12 +1875,11 @@ if [ "$php_version" != "0" ]; then
     wget -c "$php_url"
     tar zxvf "php-$php_version.tar.gz"
   else
-    log "php-$php_version 已exists"
+    log "php-$php_version 已存在"
   fi
 
   cd "$php_dir"
   make distclean || true
-
 
 PREFIX="/usr/local/php"
 PHP_ETC="${PREFIX}/etc"
@@ -1884,7 +1923,6 @@ CONFIGURE_OPTS=(
 if [[  "$php_version" =~ ^8\.2\. ]]; then
  CONFIGURE_OPTS+=("--enable-opcache")
 fi
-
 ./configure "${CONFIGURE_OPTS[@]}"
 
   make -j${JOBS}
@@ -1942,11 +1980,12 @@ EOF
 
 php_version="${php_version:-$("$PHP" -r 'echo PHP_VERSION;')}"
 
-if [[ "$php_version" =~ ^8\.5\. ]]; then
+if [[  "$php_version" =~ ^8\.5\. ]]; then
   cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=apcu.so
 extension=inotify.so
+extension=redis.so
 [PHP]
 engine = On
 short_open_tag = Off
@@ -1976,6 +2015,7 @@ upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
 default_socket_timeout = 60
+
 
 [Pdo_mysql]
 pdo_mysql.default_socket=/tmp/mariadb.sock
@@ -2106,11 +2146,11 @@ phpize && \
 --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
 make && make install
   
-  pecl_build_from_source redis || echo -e "${RED}Warning:redis Installation Failed${NC}" 
-  pecl_build_from_source inotify || echo -e "${RED}Warning:inotify Installation Failed${NC}"
-  pecl_build_from_source apcu || echo -e "${RED}Warning:apcu Installation Failed${NC}"
+  pecl_build_from_source redis || echo -e "${RED}警告：redis 安装失败${NC}"
+  pecl_build_from_source inotify || echo -e "${RED}警告：inotify 安装失败${NC}"
+  pecl_build_from_source apcu || echo -e "${RED}警告：apcu 安装失败${NC}"
 else
-  echo 'Do not install PHP'
+  echo '不安装php'
 fi
 
 
@@ -2326,7 +2366,7 @@ EOF
 
 cat <<'EOF' >  /usr/local/nginx/html/403.html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
@@ -2382,9 +2422,9 @@ cat <<'EOF' >  /usr/local/nginx/html/403.html
 <body>
   <div class="box">
     <h1>403</h1>
-    <p>Sorry, you don't have permission to access this page.</p>
+    <p>抱歉，您没有权限访问此页面。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">This server was built using the one-click package from wnmp.org.</p>
+    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用wnmp.org的一键安装包搭建而成。</p>
   </div>
 </body>
 </html>
@@ -2393,7 +2433,7 @@ EOF
 
 cat <<'EOF' >  /usr/local/nginx/html/404.html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
@@ -2449,15 +2489,13 @@ cat <<'EOF' >  /usr/local/nginx/html/404.html
 <body>
   <div class="box">
     <h1>404</h1>
-    <p>The requested resource could not be found on this server.</p>
+    <p>请求的资源无法在此服务器上找到。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">This server was built using the one-click package from wnmp.org.</p>
+    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用wnmp.org的一键安装包搭建而成。</p>
   </div>
 </body>
 </html>
-
 EOF
-
 
 
     cat <<'EOF' >  /usr/local/nginx/enable-php.conf
@@ -2498,8 +2536,7 @@ fastcgi_param  REDIRECT_STATUS    200;
 fastcgi_param PHP_ADMIN_VALUE "open_basedir=$document_root/:/tmp/:/proc/";
 EOF
 
-    cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
-
+cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
 if [[ "$IS_LAN" -eq 1 ]]; then
 cat <<'EOF' >  /usr/local/nginx/nginx.conf
 user  www www;
@@ -2836,6 +2873,10 @@ http {
 EOF
 fi
 
+
+
+
+
     systemctl daemon-reload
     systemctl enable nginx
     systemctl start nginx
@@ -2852,10 +2893,10 @@ fi
     
     ;;
   n|N|no|NO|No)
-    echo "You selected ‘No’, skipping the nginx installation..." 
+    echo "您选择了'否'，跳过nginx安装..."
     ;;
   *)
-    echo "Invalid input, default exit..." 
+    echo "无效输入，默认退出..."
     exit 1
     ;;
 esac
@@ -3010,23 +3051,26 @@ EOF
   cd ..
   set +H
   /usr/local/mariadb/bin/mysql -uroot --protocol=SOCKET <<SQL
-
+-- 设置 root@localhost 密码
 ALTER USER 'root'@'localhost'
   IDENTIFIED VIA unix_socket
   OR mysql_native_password USING PASSWORD('${MYSQL_PASS}');
 
+-- 删除匿名用户
 DROP USER IF EXISTS ''@'localhost';
 DROP USER IF EXISTS ''@'%';
 
+-- 禁止 root 远程登录
 DROP USER IF EXISTS 'root'@'%';
 DROP USER IF EXISTS 'root'@'127.0.0.1';
 DROP USER IF EXISTS 'root'@'::1';
 
+-- 删除 test 数据库及其权限
 DROP DATABASE IF EXISTS test;
 
 FLUSH PRIVILEGES;
 SQL
-  echo -e "\n✅ MariaDB initialization complete. Root password:：\033[1;32m${MYSQL_PASS}\033[0m"
+  echo -e "\n✅ MariaDB 初始化完成，root 密码：\033[1;32m${MYSQL_PASS}\033[0m"
   cd /home/wwwroot/default
     rm -rf phpmyadmin phpmyadmin.zip
     
@@ -3123,7 +3167,7 @@ apt install -y   groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-de
   apt-get update
 
 else
-  echo "Do not install MariaDB"
+  echo "不安装mariadb"
 fi
 apt --fix-broken install -y
 apt autoremove -y
@@ -3131,7 +3175,7 @@ apt autoremove -y
 
 auto_optimize_services() {
   echo "=================================================="
-  echo " Automatic Optimization of WNMP (WebDav / Nginx / PHP-FPM / MariaDB)" 
+  echo "        自动优化 WNMP（WebDav / Nginx / PHP-FPM / MariaDB）"
   echo "=================================================="
 
   CPU_CORES=$(nproc)
@@ -3160,7 +3204,7 @@ auto_optimize_services() {
     sed -i "s/pm.max_spare_servers =.*/pm.max_spare_servers = ${PM_MAX}/" "$PHP_FPM_CONF"
     echo "[PHP-FPM] max_children=${PM_MAX_CHILDREN} start=${PM_START} min=${PM_MIN} max=${PM_MAX}"
   else
-    echo "[PHP-FPM] No configuration detected, skipping." 
+    echo "[PHP-FPM] 未检测到配置，跳过"
   fi
 
 
@@ -3184,18 +3228,18 @@ auto_optimize_services() {
     fi
     echo "[MariaDB] innodb_buffer_pool_size=${INNODB_BUFFER}"
   else
-    echo "[MariaDB] No configuration detected, skipping." 
+    echo "[MariaDB] 未检测到配置，跳过"
   fi
 
-  systemctl restart nginx 2>/dev/null && echo "[OK] nginx Restart Succeeded" || echo "[WARN] nginx Restart Failed or not installed" 
-  systemctl restart php-fpm 2>/dev/null && echo "[OK] php-fpm Restart Succeeded" || echo "[WARN] php-fpm Restart Failed or not installed" 
-  systemctl restart mariadb 2>/dev/null && echo "[OK] mariadb Restart Succeeded" || echo "[WARN] mariadb Restart Failed or not installed"
+  systemctl restart nginx 2>/dev/null && echo "[OK] nginx 重启成功" || echo "[WARN] nginx 重启失败或未安装"
+  systemctl restart php-fpm 2>/dev/null && echo "[OK] php-fpm 重启成功" || echo "[WARN] php-fpm 重启失败或未安装"
+  systemctl restart mariadb 2>/dev/null && echo "[OK] mariadb 重启成功" || echo "[WARN] mariadb 重启失败或未安装"
 
-  echo "================= Optimization Results Report =================" 
+  echo "================= 优 化 结 果 报 告 ================="
   
   [ -f "$PHP_FPM_CONF" ] && { echo "[PHP-FPM]"; grep -E "pm.max_children|pm.start_servers|pm.min_spare_servers|pm.max_spare_servers|request_slowlog_timeout" "$PHP_FPM_CONF" | sed 's/^[ \t]*//'; echo; }
   [ -f "$MYSQL_CONF" ] && { echo "[MariaDB]"; grep -E "innodb_buffer_pool_size|max_connections|tmp_table_size|max_heap_table_size" "$MYSQL_CONF" | sed 's/^[ \t]*//'; echo; }
-  echo "================= Optimization Complete =================" 
+  echo "================= 优 化 完 成 ================="
 }
 
 
@@ -3209,11 +3253,11 @@ if [ "$is_wsl" -eq 1 ]; then
 *               hard    nofile           1000000
 EOF
   grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
-    echo -e "\033[33m[skip] WSL detected; skipping kernel tuning (wnmp_kernel_tune)...\033[0m"
+  echo "[limits] nofile=1000000 & /etc/profile 已更新"
+    echo -e "\033[33m[skip] 检测到 WSL 环境，跳过内核优化 (wnmp_kernel_tune)...\033[0m"
     cd /root
     bash wnmp.sh status
   else
-    echo -e "\033[32m[optimize] Running kernel/network optimizations...\033[0m"
+    echo -e "\033[32m[optimize] 执行内核/网络优化...\033[0m"
     wnmp_kernel_tune
   fi
