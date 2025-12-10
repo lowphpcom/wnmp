@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.06
+# Version: 1.07
 
 set -euo pipefail
 
@@ -224,7 +224,7 @@ webdav() {
   fi
 
   while :; do
-    read -rp "If the site has multiple domains, please enter the first one (e.g., site.example.com):" domain
+    read -rp "If the site has multiple domain names, please enter the final redirect domain. (e.g., site.example.com):" domain
     [[ -n "$domain" ]] && break
     echo "[webdav][WARN] Domain cannot be empty。"
   done
@@ -468,9 +468,10 @@ http {
     open_file_cache_min_uses 2;
     open_file_cache_errors   on;
 
-    fastcgi_connect_timeout 300s;
+    fastcgi_connect_timeout 10s;
     fastcgi_send_timeout    300s;
-    fastcgi_read_timeout    300s;
+    fastcgi_read_timeout    1800s;
+    fastcgi_request_buffering off;
     fastcgi_buffer_size     64k;
     fastcgi_buffers         4 64k;
     fastcgi_busy_buffers_size 128k;
@@ -1840,38 +1841,50 @@ if [ "$php_version" != "0" ]; then
   cd "$php_dir"
   make distclean || true
 
-  ./configure --prefix=/usr/local/php \
-    --with-config-file-path=/usr/local/php/etc \
-    --with-config-file-scan-dir=/usr/local/php/conf.d \
-    --with-pear \
-    --disable-phar \
-    --enable-exif \
-    --enable-intl \
-    --disable-zts \
-    --enable-fpm \
-    --with-fpm-user=www \
-    --with-fpm-group=www \
-    --enable-mysqlnd \
-    --with-mysqli=mysqlnd \
-    --with-pdo-mysql=mysqlnd \
-    --with-jpeg \
-    --with-freetype \
-    --with-zlib \
-    --enable-xml \
-    --disable-rpath \
-    --enable-bcmath \
-    --with-curl \
-    --enable-mbregex \
-    --enable-mbstring \
-    --enable-gd \
-    --with-openssl \
-    --with-mhash \
-    --enable-sockets \
-    --with-zip \
-    --enable-opcache \
-    --with-webp \
-    --disable-fileinfo \
-    --enable-pcntl
+
+PREFIX="/usr/local/php"
+PHP_ETC="${PREFIX}/etc"
+PHP_CONF_D="${PREFIX}/conf.d"
+FPM_USER="www"
+FPM_GROUP="www"
+CONFIGURE_OPTS=(
+  "--prefix=${PREFIX}"
+  "--with-config-file-path=${PHP_ETC}"
+  "--with-config-file-scan-dir=${PHP_CONF_D}"
+  "--with-pear"
+  "--disable-phar"
+  "--disable-zts" 
+  "--disable-rpath"
+  "--disable-fileinfo"    
+  "--enable-exif"
+  "--enable-intl"
+  "--enable-fpm"
+  "--with-fpm-user=${FPM_USER}"
+  "--with-fpm-group=${FPM_GROUP}"
+  "--enable-mysqlnd"
+  "--with-mysqli=mysqlnd"
+  "--with-pdo-mysql=mysqlnd"
+  "--with-jpeg"
+  "--with-freetype"
+  "--with-webp"
+  "--enable-gd"
+  "--with-zlib"
+  "--enable-xml"
+  "--enable-pcntl"
+  "--enable-bcmath"
+  "--with-curl"
+  "--enable-mbregex"
+  "--enable-mbstring"
+  "--with-openssl"
+  "--with-mhash"
+  "--enable-sockets"
+  "--with-zip"
+)
+if [[ "$php_version" =~ ^8\.2\. ]]; then
+  CONFIGURE_OPTS+=("--enable-opcache")
+fi
+
+./configure "${CONFIGURE_OPTS[@]}"
 
   make -j${JOBS}
   make install
@@ -1921,14 +1934,14 @@ pm.min_spare_servers = 1
 pm.max_spare_servers = 3
 pm.max_requests = 1024
 pm.process_idle_timeout = 10s
-request_terminate_timeout = 1000
+request_terminate_timeout = 0
 request_slowlog_timeout = 5s
 slowlog = /usr/local/php/var/log/slow.log
 EOF
 
 php_version="${php_version:-$("$PHP" -r 'echo PHP_VERSION;')}"
 
-if [[ ! "$php_version" =~ ^8\.5\. ]]; then
+if [[ "$php_version" =~ ^8\.5\. ]]; then
   cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=apcu.so
@@ -1946,7 +1959,6 @@ zend.exception_ignore_args = On
 zend.exception_string_param_max_len = 0
 expose_php = On
 max_execution_time = 300
-max_input_time = 60
 memory_limit = 1G
 error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
 display_errors = Off
@@ -1954,10 +1966,12 @@ display_startup_errors = Off
 log_errors = On
 variables_order = "GPCS"
 request_order = "GP"
-post_max_size = 2G
 file_uploads = On
-upload_max_filesize = 1G
-max_file_uploads = 20
+upload_max_filesize = 10G
+post_max_size = 10G
+max_file_uploads = 100
+max_input_time = 0
+upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
 default_socket_timeout = 60
@@ -1971,14 +1985,22 @@ mysqli.default_socket = /tmp/mariadb.sock
 
 [Session]
 session.save_handler = files
+session.save_path = "/tmp"
+session.use_strict_mode = 1
 session.use_only_cookies = 1
+session.cookie_httponly = 1
+session.cookie_secure = 1
+session.cookie_samesite = Lax
+session.gc_maxlifetime = 1440
+session.sid_length = 48
+session.sid_bits_per_character = 6
 
 [opcache]
 opcache.enable=1
 opcache.enable_cli=1
 opcache.memory_consumption=256
 opcache.interned_strings_buffer=16
-opcache.max_accelerated_files=20000
+opcache.max_accelerated_files=100000
 opcache.validate_timestamps=1
 opcache.revalidate_freq=1
 opcache.jit=tracing
@@ -2011,7 +2033,6 @@ zend.exception_ignore_args = On
 zend.exception_string_param_max_len = 0
 expose_php = On
 max_execution_time = 300
-max_input_time = 60
 memory_limit = 1G
 error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
 display_errors = Off
@@ -2019,13 +2040,16 @@ display_startup_errors = Off
 log_errors = On
 variables_order = "GPCS"
 request_order = "GP"
-post_max_size = 2G
 file_uploads = On
-upload_max_filesize = 1G
-max_file_uploads = 20
+upload_max_filesize = 10G
+post_max_size = 10G
+max_file_uploads = 100
+max_input_time = 0
+upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
 default_socket_timeout = 60
+zend_extension=opcache
 
 
 [Pdo_mysql]
@@ -2036,14 +2060,22 @@ mysqli.default_socket = /tmp/mariadb.sock
 
 [Session]
 session.save_handler = files
+session.save_path = "/tmp"
+session.use_strict_mode = 1
 session.use_only_cookies = 1
+session.cookie_httponly = 1
+session.cookie_secure = 1
+session.cookie_samesite = Lax
+session.gc_maxlifetime = 1440
+session.sid_length = 48
+session.sid_bits_per_character = 6
 
 [opcache]
 opcache.enable=1
 opcache.enable_cli=1
 opcache.memory_consumption=256
 opcache.interned_strings_buffer=16
-opcache.max_accelerated_files=20000
+opcache.max_accelerated_files=100000
 opcache.validate_timestamps=1
 opcache.revalidate_freq=1
 opcache.jit=tracing
@@ -2545,9 +2577,10 @@ http {
     open_file_cache_min_uses 2;
     open_file_cache_errors   on;
 
-    fastcgi_connect_timeout 300s;
+    fastcgi_connect_timeout 10s;
     fastcgi_send_timeout    300s;
-    fastcgi_read_timeout    300s;
+    fastcgi_read_timeout    1800s;
+    fastcgi_request_buffering off;
     fastcgi_buffer_size     64k;
     fastcgi_buffers         4 64k;
     fastcgi_busy_buffers_size 128k;
@@ -2709,9 +2742,10 @@ http {
     open_file_cache_min_uses 2;
     open_file_cache_errors   on;
 
-    fastcgi_connect_timeout 300s;
+    fastcgi_connect_timeout 10s;
     fastcgi_send_timeout    300s;
-    fastcgi_read_timeout    300s;
+    fastcgi_read_timeout    1800s;
+    fastcgi_request_buffering off;
     fastcgi_buffer_size     64k;
     fastcgi_buffers         4 64k;
     fastcgi_busy_buffers_size 128k;
