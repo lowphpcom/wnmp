@@ -3,17 +3,18 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.10
+# Version: 1.11
 
 set -euo pipefail
 
 set +u
 : "${DEBUGINFOD_IMA_CERT_PATH:=}"
 set -u
-
+for v in WSL_DISTRO_NAME WSL_INTEROP WSLENV; do
+  eval "export $v=\"\${$v:-}\""
+done
 
 export DEBIAN_FRONTEND=noninteractive
-
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "[-] Please run as root"
@@ -26,10 +27,12 @@ if [[ -f "$LOGFILE" ]]; then
   mv -f "$LOGFILE" "${LOGFILE%.*}-$(date +%F-%H%M%S).log"
 fi
 
+export LC_BYOBU="${LC_BYOBU-}"
+
 if [[ -t 1 && -z "${WNMP_UNDER_SCRIPT:-}" ]]; then
   if command -v script >/dev/null 2>&1; then
     export WNMP_UNDER_SCRIPT=1
-    exec script -qef -c "env SYSTEMD_COLORS=1 SYSTEMD_PAGER=cat bash '$0' $*" "$LOGFILE"
+    exec script -qef -c "env SYSTEMD_COLORS=1 SYSTEMD_PAGER=cat bash --noprofile --norc '$0' $*" "$LOGFILE"
   else
     echo "[WARN] 'script' not found; continuing without logging to file."
   fi
