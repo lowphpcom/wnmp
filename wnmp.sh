@@ -2178,16 +2178,19 @@ fi
   cd /root
 
 
-
+if [[ "$php_version" =~ ^8\.5\. ]]; then
+  wget -c https://github.com/swoole/swoole-src/archive/master.tar.gz -O swoole.tar.gz
+else
+  wget -c https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz -O swoole.tar.gz
+fi
   
-curl -o swoole.tar.gz https://github.com/swoole/swoole-src/archive/master.tar.gz -L && \
-tar zxvf ./swoole.tar.gz && \
-mv swoole-src* swoole-src && \
-cd swoole-src && \
-phpize && \
-./configure --with-php-config=/usr/local/php/bin/php-config \
---enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
-make && make install
+  tar zxvf ./swoole.tar.gz && \
+  mv swoole-src* swoole-src && \
+  cd swoole-src && \
+  phpize && \
+  ./configure --with-php-config=/usr/local/php/bin/php-config \
+  --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
+  make && make install
   
   pecl_build_from_source redis || echo -e "${RED}Warning:redis Installation Failed${NC}" 
   pecl_build_from_source inotify || echo -e "${RED}Warning:inotify Installation Failed${NC}"
