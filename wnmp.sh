@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.12
+# Version: 1.13
 
 set -euo pipefail
 
@@ -212,7 +212,10 @@ echo
 echo "  3) For cloud servers, use:"
 echo "       ssh root@serverIP"
 echo
-echo "  5) Must be paired with a startup script. Restart the physical machine once for normal operation."
+echo "  4) WSL initialization is complete. You must use the startup script and restart your hardware computer once for it to function properly."
+echo
+echo "  5) Please restart your Windows 11 computer. Only after restarting should you run bash wnmp.sh again within the Linux subsystem to actually install the web environment."
+echo
 echo "========================================"
 
 }
@@ -1623,6 +1626,64 @@ if grep -qi "microsoft" /proc/version 2>/dev/null; then
   is_wsl=1
 fi
 
+wnmp_limits_tune() {
+  local NOFILE="${1:-1048576}"
+  local NPROC="${2:-65535}"
+  local LIMITS_FILE="/etc/security/limits.conf"
+  install -d "$(dirname "$LIMITS_FILE")" 2>/dev/null || true
+  [ -f "$LIMITS_FILE" ] || : > "$LIMITS_FILE"
+
+  sed -i -E \
+    -e '/^[[:space:]]*\*[[:space:]]+(soft|hard)[[:space:]]+nofile[[:space:]]+/d' \
+    -e '/^[[:space:]]*\*[[:space:]]+(soft|hard)[[:space:]]+nproc[[:space:]]+/d' \
+    "$LIMITS_FILE" 2>/dev/null || true
+
+  cat >> "$LIMITS_FILE" <<EOF
+
+* soft nofile ${NOFILE}
+* hard nofile ${NOFILE}
+
+* soft nproc ${NPROC}
+* hard nproc ${NPROC}
+EOF
+
+  echo "[limits] ${LIMITS_FILE} updated: nofile=${NOFILE}, nproc=${NPROC}"
+
+  local SYSTEMD_CONF="/etc/systemd/system.conf"
+  install -d "$(dirname "$SYSTEMD_CONF")" 2>/dev/null || true
+  [ -f "$SYSTEMD_CONF" ] || : > "$SYSTEMD_CONF"
+
+  sed -i -E \
+    -e '/^[[:space:]]*DefaultLimitNOFILE[[:space:]]*=/d' \
+    -e '/^[[:space:]]*DefaultLimitNPROC[[:space:]]*=/d' \
+    "$SYSTEMD_CONF" 2>/dev/null || true
+
+  cat >> "$SYSTEMD_CONF" <<EOF
+
+DefaultLimitNOFILE=${NOFILE}
+DefaultLimitNPROC=${NPROC}
+EOF
+
+  echo "[systemd] ${SYSTEMD_CONF} appended: DefaultLimitNOFILE=${NOFILE}, DefaultLimitNPROC=${NPROC}"
+
+  local SYSTEMD_USER_CONF="/etc/systemd/user.conf"
+  install -d "$(dirname "$SYSTEMD_USER_CONF")" 2>/dev/null || true
+  [ -f "$SYSTEMD_USER_CONF" ] || : > "$SYSTEMD_USER_CONF"
+
+  sed -i -E \
+    -e '/^[[:space:]]*DefaultLimitNOFILE[[:space:]]*=/d' \
+    -e '/^[[:space:]]*DefaultLimitNPROC[[:space:]]*=/d' \
+    "$SYSTEMD_USER_CONF" 2>/dev/null || true
+
+  cat >> "$SYSTEMD_USER_CONF" <<EOF
+
+DefaultLimitNOFILE=${NOFILE}
+DefaultLimitNPROC=${NPROC}
+EOF
+
+  echo "[systemd] ${SYSTEMD_USER_CONF} appended: DefaultLimitNOFILE=${NOFILE}, DefaultLimitNPROC=${NPROC}"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}
 
 wnmp_kernel_tune() {
 
@@ -1706,23 +1767,18 @@ UNIT
     SYSTEMD_LOG_LEVEL=info sysctl --system || true
   fi
 
+  wnmp_limits_tune 1048576 65535
 
-  cat > /etc/security/limits.conf <<'EOF'
-*               soft    nofile           1000000
-*               hard    nofile           1000000
-EOF
-  grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
 
+  echo -e "\033[32mKernel / network tuning completed (including BBR/fq, THP disabled, and limits configuration)\033[0m"
+  read -rp "A reboot is recommended to ensure all settings take effect (WSL requires restarting the Windows 11 host). Reboot now? [Y/n] " yn
+  [ -z "${yn:-}" ] && yn="y"
+  if [[ "$yn" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+    echo "Rebooting..."
+    reboot
+  fi
   
-
-  echo -e "\033[32mKernel/Network tuning only is complete（Includes BBR/fq, THP disabled, limits configuration）\033[0m" 
-    read -rp "A reboot is recommended to apply all settings. Reboot now?? [Y/n] " yn
-    [ -z "${yn:-}" ] && yn="y"
-    if [[ "$yn" =~ ^([yY]|[yY][eE][sS])$ ]]; then
-      echo "Rebooting......"
-      reboot
-    fi
+  
 }
 
 
@@ -1730,20 +1786,7 @@ EOF
 if [ "$KERNEL_TUNE_ONLY" -eq 1 ]; then
   echo "[setup] kernel-only mode ON"
   
-
-
-  if [ "$is_wsl" -eq 1 ]; then
-    cat > /etc/security/limits.conf <<'EOF'
-*               soft    nofile           1000000
-*               hard    nofile           1000000
-EOF
-  grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
-    echo -e "\033[33m[skip] WSL detected; skipping kernel tuning (wnmp_kernel_tune)...\033[0m"
-  else
-    echo -e "\033[32m[optimize] Running kernel/network optimizations...\033[0m"
-    wnmp_kernel_tune
-  fi
+  wnmp_kernel_tune
  
   echo -e "${GREEN}Kernel/Network tuning only is complete${NC}"
   exit 0
@@ -3176,18 +3219,4 @@ auto_optimize_services() {
 auto_optimize_services
 
 
-if [ "$is_wsl" -eq 1 ]; then
-    cat > /etc/security/limits.conf <<'EOF'
-*               soft    nofile           1000000
-*               hard    nofile           1000000
-EOF
-  grep -q "ulimit -SHn 1000000" /etc/profile || echo "ulimit -SHn 1000000" >> /etc/profile
-  echo "[limits] nofile=1000000 & /etc/profile updated"
-    echo -e "\033[33m[skip] WSL detected; skipping kernel tuning (wnmp_kernel_tune)...\033[0m"
-    cd /root
-    bash wnmp.sh status
-    echo -e "\033[33m[skip] The global variables mysql and php -m will take effect only after rebooting the physical Windows 11 computer...\033[0m"
-  else
-    echo -e "\033[32m[optimize] Running kernel/network optimizations...\033[0m"
-    wnmp_kernel_tune
-  fi
+wnmp_kernel_tune
