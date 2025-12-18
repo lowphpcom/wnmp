@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.11
+# Version: 1.12
 
 set -euo pipefail
 
@@ -1240,18 +1240,18 @@ purge_mariadb() {
     mysql_cmd_base=(mysql --connect-timeout=3 --protocol=SOCKET -uroot)
     mysqldump_cmd_base=(mysqldump --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
 
-    if [ -f /root/.my.cnf ]; then
-      mysql_cmd_base=(mysql --defaults-file=/root/.my.cnf --connect-timeout=3)
-      mysqldump_cmd_base=(mysqldump --defaults-file=/root/.my.cnf --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+    if [ -f /etc/my.cnf ]; then
+      mysql_cmd_base=(mysql --defaults-file=/etc/my.cnf --connect-timeout=3)
+      mysqldump_cmd_base=(mysqldump --defaults-file=/etc/my.cnf --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
     fi
 
     if ! "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
       mysql_cmd_base=(mysql -h127.0.0.1 -P3306 -uroot --connect-timeout=3)
       mysqldump_cmd_base=(mysqldump -h127.0.0.1 -P3306 -uroot --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
 
-      if [ -f /root/.my.cnf ]; then
-        mysql_cmd_base=(mysql --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --connect-timeout=3)
-        mysqldump_cmd_base=(mysqldump --defaults-file=/root/.my.cnf -h127.0.0.1 -P3306 --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
+      if [ -f /etc/my.cnf ]; then
+        mysql_cmd_base=(mysql --defaults-file=/etc/my.cnf -h127.0.0.1 -P3306 --connect-timeout=3)
+        mysqldump_cmd_base=(mysqldump --defaults-file=/etc/my.cnf -h127.0.0.1 -P3306 --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
       fi
     fi
 
@@ -1878,11 +1878,12 @@ done
 echo "Select MariaDB version:"
 mariadbselcect=''
 mariadb_version='0'
-select mariadbselcect in "Do not install MariaDB" "1GBMemory10.6" "2GBThe above memory10.11"; do
+select mariadbselcect in "Do not install MariaDB" "1GB Memory 10.6" "2GB The above memory 10.11" "4GB The above memory 11.8.5"; do
   case $mariadbselcect in
     "Do not install MariaDB") mariadb_version='0'; break ;;
-    "1GBMemory10.6") mariadb_version='10.6.24'; break ;;
-    "2GBThe above memory10.11") mariadb_version='10.11.15'; break ;;
+    "1GB Memory 10.6") mariadb_version='10.6.24'; break ;;
+    "2GB The above memory 10.11") mariadb_version='10.11.15'; break ;;
+    "4GB The above memory 11.8.5") mariadb_version='11.8.5'; break ;;
     *) echo "Invalid option $REPLY";; 
   esac
 done
@@ -2090,9 +2091,6 @@ opcache.jit_buffer_size=64M
 opcache.save_comments=1
 opcache.enable_file_override=0
 
-[apc]
-apc.enabled=1
-apc.enable_cli=1
 
 EOF
 
@@ -2163,9 +2161,6 @@ opcache.jit_buffer_size=64M
 opcache.save_comments=1
 opcache.enable_file_override=0
 
-[apc]
-apc.enabled=1
-apc.enable_cli=1
 
 EOF
 fi
@@ -2175,6 +2170,8 @@ fi
   systemctl start php-fpm
   cd /root
 
+
+pecl channel-update pecl.php.net
 
 if [[ "$php_version" =~ ^8\.5\. ]]; then
   wget -c https://github.com/swoole/swoole-src/archive/master.tar.gz -O swoole.tar.gz
@@ -2886,11 +2883,10 @@ port        = 3306
 socket      = /tmp/mariadb.sock
 
 [mysqld]
-performance_schema=OFF
-event_scheduler=OFF
-skip-name-resolve
-wait_timeout = 28800
 character-set-server = utf8mb4
+collation-server     = utf8mb4_general_ci
+skip-character-set-client-handshake
+init_connect='SET NAMES utf8mb4'
 sql-mode = NO_ENGINE_SUBSTITUTION
 port        = 3306
 socket      = /tmp/mariadb.sock
@@ -2899,53 +2895,49 @@ basedir     = /usr/local/mariadb
 datadir     = /home/mariadb
 log_error   = /home/mariadb/mariadb.err
 pid-file    = /home/mariadb/mariadb.pid
-skip-external-locking
 
+skip-name-resolve
+performance_schema=OFF
+event_scheduler=OFF
 
-table_open_cache = 10000
-open_files_limit = 65535
-max_connections  = 1000
-max_connect_errors = 100
-
-
-key_buffer_size = 64M
-max_allowed_packet = 16M
-
-
-sort_buffer_size = 1M
-read_buffer_size = 1M
-read_rnd_buffer_size = 512K
-myisam_sort_buffer_size = 16M
+max_connections = 300
+max_connect_errors = 1000
+back_log = 1024
 thread_cache_size = 256
 
-query_cache_type = 0
-query_cache_size = 0
+wait_timeout = 3600
+interactive_timeout = 3600
 
-
-innodb_buffer_pool_size = 256M
+default_storage_engine = InnoDB
+innodb_buffer_pool_size = 1G
 innodb_buffer_pool_instances = 2
+
 innodb_file_per_table = 1
-innodb_log_file_size = 64M
-innodb_log_buffer_size = 8M
 innodb_flush_log_at_trx_commit = 2
+innodb_log_file_size = 256M
+innodb_log_buffer_size = 16M
 innodb_lock_wait_timeout = 60
 
 
-innodb_data_home_dir = /home/mariadb
-innodb_data_file_path = ibdata1:10M:autoextend
-innodb_log_group_home_dir = /home/mariadb
+innodb_flush_method = O_DIRECT
+innodb_io_capacity = 1000
+innodb_io_capacity_max = 2000
+innodb_read_io_threads = 8
+innodb_write_io_threads = 8
+
+table_open_cache = 10000
+open_files_limit = 65535
 
 
 tmp_table_size = 64M
 max_heap_table_size = 64M
 
 
-explicit_defaults_for_timestamp = true
-binlog_format = mixed
-server-id = 1
-expire_logs_days = 10
-default_storage_engine = InnoDB
-back_log = 128
+slow_query_log = 1
+slow_query_log_file = /home/mariadb/slow.log
+long_query_time = 0.2
+log_queries_not_using_indexes = 0
+
 
 [mysqldump]
 quick
@@ -2962,6 +2954,7 @@ write_buffer = 2M
 
 [mysqlhotcopy]
 interactive-timeout
+
 EOF
 
   cat <<EOF >  /etc/systemd/system/mariadb.service
