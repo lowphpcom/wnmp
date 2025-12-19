@@ -163,8 +163,11 @@ After successful installation, you will be prompted to configure a standard acco
 `wsl -d debian -u root` # Log into the Debian system as root
 
 ```bash
-cd ~
-apt update && apt install -y curl && curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh && chmod +x wnmp.sh && bash wnmp.sh wslinit
+cd /root
+apt update && apt install -y curl
+curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh wslinit
 ```
 
 In the taskbar, navigate to and open:
@@ -173,8 +176,9 @@ Replace [username] with your actual Windows login username
 
 Create a new wsl.vbs file and add the following content:
 ```bash
-Set ws = CreateObject(“Wscript.Shell”)
-ws.run “wsl -d debian”, 0
+Set ws = CreateObject("Wscript.Shell")
+ws.run "wsl -d debian", 0
+#(ws.run "wsl -d ubuntu", 0)
 ```
 After initialization completes, the subsystem will have the SSH server installed. Restart your computer as prompted, then you can log into your WSL Debian subsystem using an SSH client just like a regular server VPS.
 
@@ -203,7 +207,7 @@ Run the following command in an administrator PowerShell window to configure Hyp
 `Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow`
 
 Restart your computer again. You can now log into the subsystem using the same LAN IP address as your local Windows system. Enter `ipconfig` in the cmd console to view your local LAN IP.
-
+After restarting the computer, use an SSH client tool to access the subsystem and directly execute bash wnmp.sh to begin deploying the web environment.
 
 ## 📖 License
 
