@@ -2016,9 +2016,8 @@ fi
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-
+    purge_nginx
     cd /root
-
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
 
@@ -2037,11 +2036,11 @@ case "$choosenginx" in
 
     ensure_group mariadb
     ensure_user  mariadb mariadb
-    mkdir -p /home/wwwroot/default /home/wwwlogs /home/mariadb
+    mkdir -p /home/wwwroot/default /home/wwwlogs /home/mariadb/binlog
     chown -R www:www /home/wwwroot
     chown -R mariadb:mariadb /home/mariadb
 
-    purge_nginx
+    
     rm -rf nginx-1.28.0
     wget -c https://nginx.org/download/nginx-1.28.0.tar.gz
     tar zxvf nginx-1.28.0.tar.gz
@@ -2620,6 +2619,10 @@ if [ "$mariadb_version" != "0" ]; then
   purge_mariadb
 
   cd /root
+
+
+
+
   rm -rf "mariadb-$mariadb_version"
   wget -c "https://archive.mariadb.org/mariadb-$mariadb_version/source/mariadb-$mariadb_version.tar.gz"
   tar zxvf "mariadb-$mariadb_version.tar.gz"
