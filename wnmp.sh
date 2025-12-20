@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.13
+# Version: 1.15
 
 set -euo pipefail
 
@@ -53,6 +53,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
+green  " [init] Version: 1.15"
 green  "============================================================"
 echo
 sleep 1
@@ -64,7 +65,6 @@ Usage:
   bash wnmp.sh status        # Show status
   bash wnmp.sh sshkey        # SSH key login
   bash wnmp.sh webdav        # Add WebDAV account
-  bash wnmp.sh default       # Default site domain & certificate
   bash wnmp.sh vhost         # Create virtual host (with certificate)
   bash wnmp.sh tool          # Kernel/Network tuning only
   bash wnmp.sh restart       # Restart services
@@ -220,21 +220,32 @@ echo "========================================"
 
 }
 
+IS_LAN=1
+PUBLIC_IP=""
+
 is_lan() {
-  local local_ip
-  local_ip=$(hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /^127\./) {print $i; exit}}' 2>/dev/null)
-  if [[ -z "$local_ip" ]]; then
+  local ip
+  for ip in $(hostname -I 2>/dev/null); do
+    [[ "$ip" =~ ^127\. ]] && continue
+    [[ "$ip" =~ : ]] && continue   # 跳过 IPv6
+    break
+  done
+
+  if [[ -z "$ip" ]]; then
     IS_LAN=1
+    PUBLIC_IP=""
     return 0
   fi
-  if [[ "$local_ip" =~ ^10\. ]] || \
-     [[ "$local_ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-     [[ "$local_ip" =~ ^192\.168\. ]] || \
-     [[ "$local_ip" =~ ^127\. ]] || \
-     [[ "$local_ip" =~ ^169\.254\. ]]; then
+
+  if [[ "$ip" =~ ^10\. ]] || \
+     [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
+     [[ "$ip" =~ ^192\.168\. ]] || \
+     [[ "$ip" =~ ^169\.254\. ]]; then
     IS_LAN=1
+    PUBLIC_IP=""
   else
     IS_LAN=0
+    PUBLIC_IP="$ip"
   fi
   return 0
 }
@@ -418,304 +429,6 @@ webdav() {
 
 
 
-default() {
-if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
-if [[ "$IS_LAN" -eq 1 ]]; then
-  red "[env] This is an internal network environment; certificate requests will be skipped."
-  exit 0
-fi
-  read -rp "[STEP1] Enter domain: " DOMAIN_LINE
-  if [[ -z "$DOMAIN_LINE" ]]; then
-    
-    echo "[WARN] Domain cannot be empty"
-    return 0
-  else
-    echo "[STEP1] Input domain: ${DOMAIN_LINE}"
-  fi
-
-  FIRST_DOMAIN=$(echo "$DOMAIN_LINE" | awk '{print $1}')
-  MAP_REGEX=$(printf "%s" "$DOMAIN_LINE" | sed -e 's/\./\\./g' -e 's/[[:space:]]\+/\|/g')
-  MAP_REGEX="^(${MAP_REGEX})$"
-
-  echo "[STEP2] Write nginx.conf + inject map"
-  
-
-  cat >/usr/local/nginx/nginx.conf <<'NGINX_CONF'
-user  www www;
-worker_processes auto;
-worker_rlimit_nofile 1000000;
-pid /usr/local/nginx/nginx.pid;
-
-error_log  /home/wwwlogs/nginx_error.log crit;
-
-events {
-    worker_connections 65535;
-    use epoll;
-}
-
-http {
-    __MAP_BLOCK_PLACEHOLDER__
-
-    include       mime.types;
-    default_type  application/octet-stream;
-    dav_ext_lock_zone zone=webdav_locks:10m;
-    aio threads;
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout   10s;
-    keepalive_requests  100000;
-
-    client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
-    client_max_body_size 10g;
-    client_body_buffer_size 512k;
-    client_header_timeout 300s;
-    client_body_timeout   1800s;
-    send_timeout          1800s;
-
-    set_real_ip_from 103.21.244.0/22;
-    set_real_ip_from 103.22.200.0/22;
-    set_real_ip_from 103.31.4.0/22;
-    set_real_ip_from 104.16.0.0/13;
-    set_real_ip_from 104.24.0.0/14;
-    set_real_ip_from 108.162.192.0/18;
-    set_real_ip_from 131.0.72.0/22;
-    set_real_ip_from 141.101.64.0/18;
-    set_real_ip_from 162.158.0.0/15;
-    set_real_ip_from 172.64.0.0/13;
-    set_real_ip_from 173.245.48.0/20;
-    set_real_ip_from 188.114.96.0/20;
-    set_real_ip_from 190.93.240.0/20;
-    set_real_ip_from 197.234.240.0/22;
-    set_real_ip_from 198.41.128.0/17;
-    set_real_ip_from 2400:cb00::/32;
-    set_real_ip_from 2606:4700::/32;
-    set_real_ip_from 2803:f800::/32;
-    set_real_ip_from 2405:b500::/32;
-    set_real_ip_from 2405:8100::/32;
-    set_real_ip_from 2c0f:f248::/32;
-    set_real_ip_from 2a06:98c0::/29;
-    real_ip_header CF-Connecting-IP;
-    real_ip_recursive on;
-
-    gzip on;
-    gzip_min_length 10240;
-    gzip_proxied any;
-    gzip_vary on;
-    gzip_types
-        text/plain text/css text/xml text/javascript application/javascript
-        application/x-javascript application/xml application/xml+rss
-        application/json application/ld+json application/x-font-ttf
-        font/opentype application/vnd.ms-fontobject image/svg+xml;
-
-    open_file_cache          max=200000 inactive=20s;
-    open_file_cache_valid    30s;
-    open_file_cache_min_uses 2;
-    open_file_cache_errors   on;
-
-    fastcgi_connect_timeout 10s;
-    fastcgi_send_timeout    300s;
-    fastcgi_read_timeout    1800s;
-    fastcgi_request_buffering off;
-    fastcgi_buffer_size     64k;
-    fastcgi_buffers         4 64k;
-    fastcgi_busy_buffers_size 128k;
-    fastcgi_temp_file_write_size 256k;
-
-    server_tokens off;
-
-    upstream lowphp {
-        server unix:/tmp/lowphp.sock;
-        keepalive 100000;
-    }
-
-    server {
-        listen 80 default_server reuseport;
-        listen 443 ssl default_server reuseport;
-        http2 on;
-        server_name _;
-
-        root  /home/wwwroot/default;
-        index index.html index.php;
-
-        if ($is_allowed_host = 0) { return 403; }
-
-        error_page 403 = @e403;
-
-        location @e403 {
-            root html;
-            internal;
-            types { }
-            default_type text/html;
-            add_header Content-Type "text/html; charset=utf-8";  
-            try_files /403.html =403;
-        }
-
-        error_page 502 504 404 = @e404;
-        location @e404 {
-            root html;
-            internal;
-            types { }
-            default_type text/html;
-            add_header Content-Type "text/html; charset=utf-8";
-            try_files /404.html =404;
-        }
-        
-        ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
-        ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
-        ssl_session_cache   shared:SSL:20m;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
-        ssl_prefer_server_ciphers off;
-        ssl_session_timeout 1d;
-        ssl_session_tickets off;
-        ssl_stapling on;
-        ssl_stapling_verify on;
-
-        autoindex_exact_size off;
-        autoindex_localtime on;
-
-        include enable-php.conf;
-
-        location /nginx_status { stub_status on; access_log off; }
-
-        location ~* \.(gif|jpg|jpeg|png|bmp|webp|ico|svg)$ {
-            expires 30d;
-            add_header Cache-Control "public, max-age=2592000, immutable";
-            access_log off;
-        }
-        location ~* \.(js|css)$ {
-            expires 12h;
-            add_header Cache-Control "public, max-age=43200";
-            access_log off;
-        }
-
-        location ^~ /.well-known/ { allow all; }
-        location ~ /\.(?!well-known) { deny all; }
-
-        location = /phpmyadmin { return 301 /phpmyadmin/; }
-        location ^~ /phpmyadmin/ {
-            include enable-php.conf;
-            auth_basic "WebDAV Authentication";
-            auth_basic_user_file /home/passwd/.default;
-        }
-
-        access_log off;
-    }
-
-    include vhost/*.conf;
-}
-NGINX_CONF
-
-  sed -i "s#__MAP_BLOCK_PLACEHOLDER__#map \$host \$is_allowed_host {\n        default 0;\n        ~\\(${MAP_REGEX}\\) 1;\n    }#g" /usr/local/nginx/nginx.conf
-  echo "[STEP2] map Regular:${MAP_REGEX}"
-
-  echo "[STEP4] Detect acme.sh"
-  ACME_HOME="${ACME_HOME:-$HOME/.acme.sh}"
-  ACME_BIN=""
-  if command -v acme.sh >/dev/null 2>&1; then
-    ACME_BIN="$(command -v acme.sh)"
-  elif [ -x "$ACME_HOME/acme.sh" ]; then
-    ACME_BIN="$ACME_HOME/acme.sh"
-  fi
-  if [ -z "$ACME_BIN" ]; then
-    echo "[STEP4] Install acme.sh ..."
-    curl -fsSL https://get.acme.sh | sh
-    ACME_BIN="$HOME/.acme.sh/acme.sh"
-    ACME_HOME="$HOME/.acme.sh"
-  fi
-  echo "[STEP4] ACME_BIN=$ACME_BIN"
-  echo "[STEP4] ACME_HOME=$ACME_HOME"
-  "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
-
-  echo "[STEP5] Read CF credentials (env first, then account.conf)"
-  token_file="$ACME_HOME/account.conf"
-  [ -f "$token_file" ] && echo "[STEP5] account.conf: $token_file exists" || echo "[STEP5] account.conf: no exists"
-
-
-  CF_Token_val="${CF_Token-}"
-  if [ -z "$CF_Token_val" ] && [ -f "$token_file" ]; then
-    CF_Token_val="$(grep -E "^SAVED_CF_Token=" "$token_file" 2>/dev/null | head -n1 | cut -d"'" -f2 2>/dev/null || true)"
-  fi
-
-  CF_Key_val="${CF_Key-}"
-  if [ -z "$CF_Key_val" ] && [ -f "$token_file" ]; then
-    CF_Key_val="$(grep -E "^SAVED_CF_Key=" "$token_file" 2>/dev/null | head -n1 | cut -d"'" -f2 2>/dev/null || true)"
-  fi
-
-  CF_Email_val="${CF_Email-}"
-  if [ -z "$CF_Email_val" ] && [ -f "$token_file" ]; then
-    CF_Email_val="$(grep -E "^SAVED_CF_Email=" "$token_file" 2>/dev/null | head -n1 | cut -d"'" -f2 2>/dev/null || true)"
-  fi
-
-  dns_cf_script="$ACME_HOME/dnsapi/dns_cf.sh"
-  [ -f "$dns_cf_script" ] && echo "[STEP5] dns_cf.sh: found ($dns_cf_script)" || echo "[STEP5] dns_cf.sh: missing"
-
-
-  DNS_CF_OK=0
-  if [ -f "$dns_cf_script" ]; then
-    if [ -n "$CF_Token_val" ] || { [ -n "$CF_Key_val" ] && [ -n "$CF_Email_val" ]; }; then
-      DNS_CF_OK=1
-    fi
-  fi
-
-
-  short() { printf "%s" "$1" | cut -c1-6; }
-  echo "[STEP5] CF_Token: $( [ -n "$CF_Token_val" ] && printf "%s******" "$(short "$CF_Token_val")" || echo "<none>" )"
-  echo "[STEP5] CF_Key  : $( [ -n "$CF_Key_val"   ] && printf "%s******" "$(short "$CF_Key_val")"   || echo "<none>" )"
-  echo "[STEP5] CF_Email: $( [ -n "$CF_Email_val" ] && printf "%s"        "$CF_Email_val"            || echo "<none>" )"
-  echo "[STEP5] DNS_CF_OK: $DNS_CF_OK"
-
-  echo "[STEP6] Attempt to issue ($FIRST_DOMAIN, EC-256)" 
-  CF_OK=0
-  if [ "$DNS_CF_OK" -eq 1 ]; then
-    echo "[STEP6-DNS] Use Cloudflare DNS（dns_cf）"
-    if [ -n "$CF_Token_val" ]; then
-      CF_Token="$CF_Token_val" \
-      "$ACME_BIN" --issue --dns dns_cf -d "$FIRST_DOMAIN" --keylength ec-256 --force  || true
-      [ $? -eq 0 ] && CF_OK=1
-    else
-      CF_Key="$CF_Key_val" CF_Email="$CF_Email_val" \
-      "$ACME_BIN" --issue --dns dns_cf -d "$FIRST_DOMAIN" --keylength ec-256 --force  || true
-      [ $? -eq 0 ] && CF_OK=1
-    fi
-    [ "$CF_OK" -eq 1 ] && echo "[STEP6-DNS] Succeeded" || echo "[STEP6-DNS] Failed，Prepare webroot decline" 
-  else
-    echo "[STEP6] No CF credentials or missing dns_cf.sh, fallback to webroot"
-  fi
-
-  if [ "$CF_OK" -ne 1 ]; then
-    echo "[STEP6-WEBROOT] --webroot /home/wwwroot/default"
-    "$ACME_BIN" --issue -w /home/wwwroot/default -d "$FIRST_DOMAIN" --keylength ec-256 --force  || {
-      echo "[ERROR] webroot Application Failed"; return 2; 
-    }
-  fi
-
-  echo "[STEP7] Install certificate to fixed path and reload"
-  "$ACME_BIN" --install-cert -d "$FIRST_DOMAIN" --ecc \
-    --key-file       /usr/local/nginx/ssl/default/key.pem \
-    --fullchain-file /usr/local/nginx/ssl/default/cert.pem \
-    --reloadcmd     '/usr/local/nginx/sbin/nginx -t && /usr/local/nginx/sbin/nginx -s reload' || {
-      echo "[ERROR] Installation/Reload Failed"; return 3; 
-    }
-
-  echo "[DONE] Default site certificate is ready：/usr/local/nginx/ssl/default/{cert.pem,key.pem}"
-}
-
-
-
 vhost() {
 if [[ "$IS_LAN" -eq 1 ]]; then
 red "[env] Detected a LAN environment, certificate issuance will be skipped."
@@ -870,6 +583,7 @@ server{
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
     ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
+    ssl_trusted_certificate /usr/local/nginx/ssl/default/ca.pem;
     ssl_session_cache   shared:SSL:20m;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
@@ -999,16 +713,18 @@ fi
   }
   update_ssl_paths_single_dir() { 
     local conf="$1"; local dir="$2"
-    local cert="${dir}/cert.pem"; local key="${dir}/key.pem"
+    local cert="${dir}/cert.pem"; local key="${dir}/key.pem"; local ca="${dir}/ca.pem"
     sed -i \
       -e "s#ssl_certificate[[:space:]]\+/usr/local/nginx/ssl/default/cert.pem;#ssl_certificate     ${cert};#g" \
       -e "s#ssl_certificate_key[[:space:]]\+/usr/local/nginx/ssl/default/key.pem;#ssl_certificate_key ${key};#g" \
+      -e "s#ssl_trusted_certificate[[:space:]]\+/usr/local/nginx/ssl/default/ca.pem;#ssl_trusted_certificate ${ca};#g" \
       "$conf"
     if ! grep -qE "ssl_certificate[[:space:]]+${cert//\//\\/};" "$conf"; then
       local _SSL_LINES
       _SSL_LINES="$(cat <<EOF
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
+    ssl_trusted_certificate ${$ca};
 EOF
 )"
       inject_after_server_name "$conf" "$_SSL_LINES"
@@ -1021,6 +737,7 @@ EOF
       -e '/^[[:space:]]*add_header[[:space:]]\+Strict-Transport-Security/d' \
       -e '/^[[:space:]]*ssl_certificate[[:space:]]\+/d' \
       -e '/^[[:space:]]*ssl_certificate_key[[:space:]]\+/d' \
+      -e '/^[[:space:]]*ssl_trusted_certificate[[:space:]]\+/d' \
       -e '/^[[:space:]]*ssl_session_timeout[[:space:]]\+/d' \
       -e '/^[[:space:]]*ssl_session_cache[[:space:]]\+/d' \
       -e '/^[[:space:]]*ssl_protocols[[:space:]]\+/d' \
@@ -1137,6 +854,7 @@ EOF
       --ecc \
       --key-file       "$ssl_dir/key.pem" \
       --fullchain-file "$ssl_dir/cert.pem" \
+      --ca-file        "$ssl_dir/ca.pem" \
       --reloadcmd      "true" || true
 
     if [[ -s "$ssl_dir/key.pem" && -s "$ssl_dir/cert.pem" ]]; then
@@ -1533,18 +1251,25 @@ EOF
   echo "[safe] Public key fingerprint (SHA256):"
   ssh-keygen -lf "${PUB_KEY}" -E sha256 | awk '{print " - "$0}'
   echo
-  echo "==================  Copy the following PRIVATE KEY content to your local computer (e.g., save as test.key and import into Xshell or another client for root key login)  =================="
-  cat "${PRIV_KEY}"
+  echo "====================================================================="
+  echo "✅ Root key-only login enabled successfully."
   echo
-  echo "==================  End of copy  =================="
+  echo "🔐 IMPORTANT: DO NOT copy/paste the private key content."
+  echo "🔐 Private keys must be transferred as FILES to avoid corruption."
   echo
-  echo "[safe] One-line private key (already stored on server in ${AUTH_KEYS}):"
-  if base64 --help 2>&1 | grep -q -- "-w"; then
-    base64 -w0 "${PRIV_KEY}"
-  else
-    base64 "${PRIV_KEY}" | tr -d '\n'
-  fi
- 
+  echo "➡️  Download the private key using SCP (recommended):"
+  echo
+  echo "   scp -P <SSH_PORT> root@<SERVER_IP>:/root/.ssh/${KEY_NAME} ~/.ssh/${KEY_NAME}"
+  echo
+  echo "   Then set permissions:"
+  echo "   chmod 600 ~/.ssh/${KEY_NAME}"
+  echo
+  echo "➡️  Or download via SFTP (WinSCP / FileZilla / Xshell File Transfer)."
+  echo
+  echo "====================================================================="
+  echo
+
+  
   local SERVER_IP
   SERVER_IP="$(ip -o -4 addr show | awk '!/ lo / && /inet /{gsub(/\/.*/,"",$4); print $4; exit}')"
   echo "[safe] Test command: ssh -i ~/.ssh/${KEY_NAME} root@<SERVER>"
@@ -1568,7 +1293,6 @@ for arg in "$@"; do
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
      status) status; exit 0 ;;
-     default) default; exit 0 ;;
      webdav) webdav; exit 0 ;;
      sshkey) sshkey; exit 0 ;;
      remove) remove; exit 0 ;;
@@ -2241,6 +1965,19 @@ case "$choosenginx" in
   y|Y|yes|YES|Yes)
 
     cd /root
+
+    cd /root
+    apt-get install -y cron curl tar
+    systemctl enable --now cron
+
+    curl https://get.acme.sh | sh -s email=1@gmail.com
+    bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
+    if [[ "$IS_LAN" -eq 0 ]]; then  
+      acme.sh --issue --server letsencrypt -d ${PUBLIC_IP} --certificate-profile shortlived  --standalone --force
+    fi
+
+
     mkdir -p /home/passwd
     htpasswd -bc /home/passwd/.default wnmp ${MYSQL_PASS}
     chown -R www:www /home/passwd
@@ -2319,12 +2056,9 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-    mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
-
-
+mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
 
 cat <<'EOF' >  /usr/local/nginx/download.conf
-
 types { }
 default_type application/octet-stream;
 autoindex on;            
@@ -2486,7 +2220,7 @@ EOF
 
 
 
-    cat <<'EOF' >  /usr/local/nginx/enable-php.conf
+cat <<'EOF' >  /usr/local/nginx/enable-php.conf
 location ~ [^/]\.php(/|$)
 {
     try_files $uri =404;
@@ -2496,7 +2230,7 @@ location ~ [^/]\.php(/|$)
 }
 EOF
 
-    cat <<'EOF' >  /usr/local/nginx/fastcgi.conf
+cat <<'EOF' >  /usr/local/nginx/fastcgi.conf
 fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
 fastcgi_param  QUERY_STRING       $query_string;
 fastcgi_param  REQUEST_METHOD     $request_method;
@@ -2524,7 +2258,7 @@ fastcgi_param  REDIRECT_STATUS    200;
 fastcgi_param PHP_ADMIN_VALUE "open_basedir=$document_root/:/tmp/:/proc/";
 EOF
 
-    cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
+cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
 
 if [[ "$IS_LAN" -eq 1 ]]; then
 cat <<'EOF' >  /usr/local/nginx/nginx.conf
@@ -2562,29 +2296,6 @@ http {
     send_timeout          1800s;
 
 
-    set_real_ip_from 103.21.244.0/22;
-    set_real_ip_from 103.22.200.0/22;
-    set_real_ip_from 103.31.4.0/22;
-    set_real_ip_from 104.16.0.0/13;
-    set_real_ip_from 104.24.0.0/14;
-    set_real_ip_from 108.162.192.0/18;
-    set_real_ip_from 131.0.72.0/22;
-    set_real_ip_from 141.101.64.0/18;
-    set_real_ip_from 162.158.0.0/15;
-    set_real_ip_from 172.64.0.0/13;
-    set_real_ip_from 173.245.48.0/20;
-    set_real_ip_from 188.114.96.0/20;
-    set_real_ip_from 190.93.240.0/20;
-    set_real_ip_from 197.234.240.0/22;
-    set_real_ip_from 198.41.128.0/17;
-    set_real_ip_from 2400:cb00::/32;
-    set_real_ip_from 2606:4700::/32;
-    set_real_ip_from 2803:f800::/32;
-    set_real_ip_from 2405:b500::/32;
-    set_real_ip_from 2405:8100::/32;
-    set_real_ip_from 2c0f:f248::/32;
-    set_real_ip_from 2a06:98c0::/29;
-    real_ip_header CF-Connecting-IP;
     real_ip_recursive on;
 
     gzip on;
@@ -2648,6 +2359,7 @@ http {
 
         autoindex_exact_size off;
         autoindex_localtime on;
+        include enable-php.conf;
 
         location /nginx_status { stub_status off; access_log off; }
 
@@ -2702,11 +2414,6 @@ events {
 
 http {
 
-    map $host $is_allowed_host {
-        default 0;
-         ~^(default\.example\.com)$ 1;
-    }
-
     include       mime.types;
     default_type  application/octet-stream;
     dav_ext_lock_zone zone=webdav_locks:10m;
@@ -2727,29 +2434,7 @@ http {
     send_timeout          1800s;
 
 
-    set_real_ip_from 103.21.244.0/22;
-    set_real_ip_from 103.22.200.0/22;
-    set_real_ip_from 103.31.4.0/22;
-    set_real_ip_from 104.16.0.0/13;
-    set_real_ip_from 104.24.0.0/14;
-    set_real_ip_from 108.162.192.0/18;
-    set_real_ip_from 131.0.72.0/22;
-    set_real_ip_from 141.101.64.0/18;
-    set_real_ip_from 162.158.0.0/15;
-    set_real_ip_from 172.64.0.0/13;
-    set_real_ip_from 173.245.48.0/20;
-    set_real_ip_from 188.114.96.0/20;
-    set_real_ip_from 190.93.240.0/20;
-    set_real_ip_from 197.234.240.0/22;
-    set_real_ip_from 198.41.128.0/17;
-    set_real_ip_from 2400:cb00::/32;
-    set_real_ip_from 2606:4700::/32;
-    set_real_ip_from 2803:f800::/32;
-    set_real_ip_from 2405:b500::/32;
-    set_real_ip_from 2405:8100::/32;
-    set_real_ip_from 2c0f:f248::/32;
-    set_real_ip_from 2a06:98c0::/29;
-    real_ip_header CF-Connecting-IP;
+   
     real_ip_recursive on;
 
     gzip on;
@@ -2789,14 +2474,12 @@ http {
         listen 443 ssl  default_server reuseport;
         http2 on;
         server_name _;
-
+        if ($server_port = 80 ) {
+            return 301 https://$host$request_uri;
+        }
         root  /home/wwwroot/default;
         index index.html index.php;
-
-        if ($is_allowed_host = 0) { return 403; }
-
         error_page 403 = @e403;
-
         location @e403 {
             root html;
             internal;
@@ -2815,11 +2498,18 @@ http {
             add_header Content-Type "text/html; charset=utf-8";
             try_files /404.html =404;
         }
-        ssl_reject_handshake on;
-
+        ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
+        ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
+        ssl_trusted_certificate /usr/local/nginx/ssl/default/ca.pem;
+        ssl_session_cache   shared:SSL:20m;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
+        ssl_prefer_server_ciphers off;
+        ssl_session_timeout 1d;
+        ssl_session_tickets off;
         autoindex_exact_size off;
         autoindex_localtime on;
-
+        include enable-php.conf;
         location /nginx_status { stub_status off; access_log off; }
 
         location ~* \.(gif|jpg|jpeg|png|bmp|webp|ico|svg)$ {
@@ -2849,26 +2539,19 @@ http {
         
         access_log off;
     }
-
-   
+ 
     include vhost/*.conf;
 }
 EOF
 fi
 
+    if [[ "$IS_LAN" -eq 0 ]]; then  
+      acme.sh --install-cert -d ${PUBLIC_IP} --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem --ca-file  /usr/local/nginx/ssl/default/ca.pem
+    fi
+
     systemctl daemon-reload
     systemctl enable nginx
     systemctl start nginx
-    cd ..
-    apt-get install -y cron curl socat tar
-    systemctl enable --now cron
-
-    curl https://get.acme.sh | sh -s email=1@gmail.com
-
-    bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
-
-    
     
     ;;
   n|N|no|NO|No)
@@ -2926,6 +2609,14 @@ port        = 3306
 socket      = /tmp/mariadb.sock
 
 [mysqld]
+
+server-id=1
+log-bin=/home/mariadb/binlog/mysql-bin
+binlog_format=row
+expire_logs_days=3
+innodb_flush_log_at_trx_commit=1
+sync_binlog=1
+
 character-set-server = utf8mb4
 collation-server     = utf8mb4_general_ci
 skip-character-set-client-handshake
