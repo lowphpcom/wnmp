@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.15
+# Version: 1.16
 
 set -euo pipefail
 
@@ -53,7 +53,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.15"
+green  " [init] Version: 1.16"
 green  "============================================================"
 echo
 sleep 1
@@ -1330,6 +1330,26 @@ EOF
   echo
   echo "[safe] Enabled: root login via key only."
   echo "[safe] To revert: mv -f ${SSHD_BAK} ${SSHD_MAIN} && systemctl restart ssh"
+
+  
+  echo
+  echo "⚠️  Advanced option (NOT recommended)"
+  echo "⚠️  Only use this if SCP / SFTP cannot be used"
+  echo "⚠️  Copying private keys manually is very error-prone"
+  echo
+
+  read -rp "Do you still want to export the private key as String? (advanced users only) [y/N]: " export_string </dev/tty
+
+  if [[ "${export_string,,}" =~ ^(y|yes)$ ]]; then
+    echo
+    cat "${PRIV_KEY}"
+    echo
+    echo "⚠️  Note: Do NOT use editors like Windows Notepad that may alter line endings or encoding"
+  fi
+
+
+
+
 }
 
 
@@ -2029,16 +2049,15 @@ case "$choosenginx" in
       acme.sh --issue --server letsencrypt -d "$PUBLIC_IP" --certificate-profile shortlived  --standalone --force
     fi
 
-
+    mkdir -p /home/wwwroot/default
+    mkdir -p /home/wwwlogs
     mkdir -p /home/passwd
     htpasswd -bc /home/passwd/.default wnmp ${MYSQL_PASS}
     chown -R www:www /home/passwd
-
-    ensure_group mariadb
-    ensure_user  mariadb mariadb
-    mkdir -p /home/wwwroot/default /home/wwwlogs /home/mariadb/binlog
     chown -R www:www /home/wwwroot
-    chown -R mariadb:mariadb /home/mariadb
+    chown -R www:www /home/wwwlogs
+
+    
 
     
     rm -rf nginx-1.28.0
@@ -2620,7 +2639,11 @@ if [ "$mariadb_version" != "0" ]; then
 
   cd /root
 
-
+  ensure_group mariadb
+  ensure_user  mariadb mariadb
+  mkdir -p /home/mariadb
+  mkdir -p /home/mariadb/binlog
+  chown -R mariadb:mariadb /home/mariadb
 
 
   rm -rf "mariadb-$mariadb_version"
