@@ -30,6 +30,23 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 因此，WNMP 推荐在 KVM 虚拟机、云服务器，或 Proxmox (PVE) 中开设的 KVM 虚拟系统上使用，以充分发挥其性能调优与系统优化的优势。
 
 
+## 更新记录
+v1.15 取消default函数，已默认申请Let's Encrypt IP证书保护，并生成NGINX BASIC AUTH 加固保护；可直接https://[ip]/phpmyadmin 访问数据库
+v1.13 进一步优化内核参数提高系统并发能力
+v1.12 新增Mariadb 11.8.5 支持，优化my.cnf 更合理的默认配置
+v1.11 Win11(WSL) 执行bash wnmp.sh wslinit 检测区分Ubuntu或Debian 切换到对应阿里云更新源
+v1.10 修改sshkey代码逻辑，重复申请ssh密钥只允许最新公钥密钥对有效，旧公钥备份保存
+v1.09 删除默认站点.pem文件，避免误会。默认站点正式申请证书后才会生成.pem证书文件
+v1.05 覆盖安装或执行bash wnmp.sh remariadb 先全库备份在：/home/all_databases_backup_[time].sql.gz
+v1.04 纯网盘站点屏蔽.php文件,防止被下载源代码
+v1.03 优化Nginx参数以加速SSL证书验证
+v1.02 加入--pcntl扩展，兼容workerman
+v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和pecl还不支持部署在php8.5,但wnmp支持
+
+
+
+
+
 ## 🚀 概述
 
 **WNMP** 通过一条命令安装 Nginx、PHP、MariaDB，集成 `acme.sh` 自动申请证书，配置 WebDAV、开启 BBR/FQ、关闭 THP，为中小网站、边缘节点、私有化项目提供开箱即用的生产环境。
@@ -84,7 +101,6 @@ bash wnmp.sh
 | 查看状态 | `bash wnmp.sh status` |
 | SSH 密钥登录 | `bash wnmp.sh sshkey` |
 | 添加 WebDAV 账号 | `bash wnmp.sh webdav` |
-| 默认站点域名与证书 | `bash wnmp.sh default` |
 | 创建虚拟主机（含证书） | `bash wnmp.sh vhost` |
 | 仅执行内核/网络调优 | `bash wnmp.sh tool` |
 | 重启所有服务 | `bash wnmp.sh restart` |
