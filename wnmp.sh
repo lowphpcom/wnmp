@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.18
+# Version: 1.20
 
 set -euo pipefail
 
@@ -40,7 +40,8 @@ if [[ -t 1 && -z "${WNMP_UNDER_SCRIPT:-}" ]]; then
   fi
 fi
 
-
+WNMPDIR="/root/wnmp"
+mkdir -p "$WNMPDIR"
 
 red()    { echo -e "\033[31m$*\033[0m"; }
 green()  { echo -e "\033[32m$*\033[0m"; }
@@ -53,7 +54,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.18"
+green  " [init] Version: 1.20"
 green  "============================================================"
 echo
 sleep 1
@@ -61,253 +62,21 @@ sleep 1
 usage() {
   cat <<'USAGE'
 Usage:
-  bash wnmp.sh               # Install normally
-  bash wnmp.sh status        # Show status
+  bash wnmp.sh               # Normal installation
+  bash wnmp.sh status        # View status
   bash wnmp.sh sshkey        # SSH key login
   bash wnmp.sh webdav        # Add WebDAV account
   bash wnmp.sh vhost         # Create virtual host (with certificate)
-  bash wnmp.sh tool          # Kernel/Network tuning only
+  bash wnmp.sh tool          # Kernel/network tuning only
   bash wnmp.sh restart       # Restart services
   bash wnmp.sh remove        # Uninstall
   bash wnmp.sh renginx       # Uninstallnginx
   bash wnmp.sh rephp         # Uninstallphp
   bash wnmp.sh remariadb     # Uninstallmariadb
-  bash wnmp.sh wslinit       # Wsl open SSH Server
-  bash wnmp.sh fixsshd       # Self-check sshd and attempt to repair
+  bash wnmp.sh fixsshd       # Self-check sshd and try to fix
   bash wnmp.sh -h|--help     # Show help
 USAGE
 }
-
-fixsshd() {
-  echo "=========================================="
-  echo "[+] Starting to repair SSHD configuration and host key permissions..."
-  echo "=========================================="
-  set -euo pipefail
-
-  # 1) Fix permissions for /etc/ssh and its include directory
-  mkdir -p /etc/ssh/sshd_config.d
-  chown -R root:root /etc/ssh
-  chmod 755 /etc/ssh /etc/ssh/sshd_config.d
-  find /etc/ssh/sshd_config.d -type f -exec chown root:root {} \; -exec chmod 0644 {} \;
-  echo "[OK] Directory permissions have been fixed."
-
-  # 2) Remove potentially corrupted HostKeys, regenerate them, and fix permissions
-  rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub || true
-  ssh-keygen -A >/dev/null
-  chown root:root /etc/ssh/ssh_host_*_key
-  chmod 600 /etc/ssh/ssh_host_*_key
-  echo "[OK] SSH HostKeys have been regenerated."
-
-  # 3) Validate sshd configuration
-  echo "[*] Checking if sshd configuration is valid..."
-  if ! /usr/sbin/sshd -t; then
-    echo "[!] sshd configuration test failed. Showing detailed log:"
-    /usr/sbin/sshd -t -E /tmp/sshd-check.log || true
-    tail -n +1 /tmp/sshd-check.log
-    echo "=========================================="
-    echo "[X] sshd configuration still contains errors. Please check the log above."
-    echo "=========================================="
-    return 1
-  fi
-  echo "[OK] sshd configuration test passed."
-
-  # 4) Reload and restart SSH service
-  systemctl daemon-reload
-  systemctl restart ssh || systemctl restart sshd || true
-  echo "[OK] sshd restart attempted. Current status:"
-  systemctl status ssh --no-pager --full || systemctl status sshd --no-pager --full || true
-  echo "=========================================="
-  echo "[✓] SSH repair process completed."
-  echo "=========================================="
-}
-
-
-
-wslinit(){
-
-  
-
-export DEBIAN_FRONTEND=noninteractive
-apt update
-apt -y full-upgrade
-
-echo "[4/7] Install common tools and openssh-server ..."
-apt install -y \
-  build-essential \
-  ca-certificates \
-  curl wget unzip git cmake pkg-config \
-  htop net-tools \
-  openssh-server
-
-install -d -m 0755 -o root -g root /run/sshd
-
-ssh-keygen -A
-
-update-ca-certificates || true
-
-echo "[5/7] Configure SSH: Allow root login + password login ..."
-
-SSHD_CFG="/etc/ssh/sshd_config"
-
-set_sshd_option() {
-  local key="$1"
-  local value="$2"
-  if grep -qE "^[#[:space:]]*${key}\b" "$SSHD_CFG"; then
-    sed -i "s/^[#[:space:]]*${key}.*/${key} ${value}/" "$SSHD_CFG"
-  else
-    echo "${key} ${value}" >>"$SSHD_CFG"
-  fi
-}
-
-set_sshd_option "PermitRootLogin" "yes"
-set_sshd_option "PasswordAuthentication" "yes"
-set_sshd_option "PermitEmptyPasswords" "no"
-set_sshd_option "PubkeyAuthentication" "yes"
-
-echo "[6/7] Restart the SSH service ..."
-
-if command -v service >/dev/null 2>&1; then
-  service sshd restart || true
-fi
-
-
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl enable sshd >/dev/null 2>&1 || true
-  systemctl restart sshd >/dev/null 2>&1 || true
-fi
-
-echo "[7/7] Set the root password (please enter the new password twice as prompted) ..."
-passwd root
-
-echo "[7.1/7] Set the default user to root (write to /etc/wsl.conf) ..."
-
-cat >/etc/wsl.conf <<'EOF'
-[boot]
-systemd=true
-[user]
-default=root
-EOF
-mkdir -p /run/sshd && sudo chmod 755 /run/sshd
-ssh-keygen -A
-/usr/sbin/sshd -t &&  systemctl restart sshd && systemctl status sshd --no-pager
-
-mkdir -p /run/sshd && sudo chmod 755 /run/sshd
-ssh-keygen -A
-systemctl restart sshd
-
-fixsshd || echo "[WARN] SSHD self-check failed. Please run 'bash wnmp.sh fixsshd' manually to view the details."
-
-echo
-echo "================= Complete ================="
-echo "[OK] System upgraded, common tools and openssh-server installed."
-echo "[OK] SSH root + password login enabled."
-echo
-echo "Quick tips:"
-echo "  1) In WSL2, if ssh isn't running, start it manually:"
-echo "       systemctl start sshd"
-echo
-echo "  2) To test connection locally (within WSL):"
-echo "       ssh root@127.0.0.1"
-echo
-echo "  3) For cloud servers, use:"
-echo "       ssh root@serverIP"
-echo
-echo "  4) WSL initialization is complete. You must use the startup script and restart your hardware computer once for it to function properly."
-echo
-echo "  5) Please restart your Windows 11 computer. Only after restarting should you run bash wnmp.sh again within the Linux subsystem to actually install the web environment."
-echo
-echo "========================================"
-
-}
-
-
-
-
-IS_LAN=1
-PUBLIC_IP=""
-
-is_lan() {
-  local ip="" wan=""
-
-  _pick_best_ipv4() {
-    local x private=""
-
-    for x in $(hostname -I 2>/dev/null); do
-      [[ -z "$x" ]] && continue
-      [[ "$x" =~ : ]] && continue        # 跳过 IPv6
-      [[ "$x" =~ ^127\. ]] && continue
-
-      if [[ "$x" =~ ^10\. ]] || \
-         [[ "$x" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-         [[ "$x" =~ ^192\.168\. ]] || \
-         [[ "$x" =~ ^169\.254\. ]]; then
-        [[ -z "$private" ]] && private="$x"
-        continue
-      fi
-      echo "$x"
-      return 0
-    done
-
-
-    [[ -n "$private" ]] && echo "$private" || echo ""
-  }
-
-  _get_public_ipv4() {
-    local out=""
-
-    if command -v curl >/dev/null 2>&1; then
-      out="$(curl -4fsS --max-time 3 https://1.1.1.1/cdn-cgi/trace 2>/dev/null \
-        | awk -F= '/^ip=/{print $2; exit}')"
-      [[ -z "$out" ]] && out="$(curl -4fsS --max-time 3 https://api.ipify.org 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(curl -4fsS --max-time 3 https://ifconfig.me/ip 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(curl -4fsS --max-time 3 https://checkip.amazonaws.com 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(curl -4fsS --max-time 3 https://icanhazip.com 2>/dev/null | tr -d '\r\n ')"
-    elif command -v wget >/dev/null 2>&1; then
-      out="$(wget -4qO- --timeout=3 https://1.1.1.1/cdn-cgi/trace 2>/dev/null \
-        | awk -F= '/^ip=/{print $2; exit}')"
-      [[ -z "$out" ]] && out="$(wget -4qO- --timeout=3 https://api.ipify.org 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(wget -4qO- --timeout=3 https://ifconfig.me/ip 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(wget -4qO- --timeout=3 https://checkip.amazonaws.com 2>/dev/null | tr -d '\r\n ')"
-      [[ -z "$out" ]] && out="$(wget -4qO- --timeout=3 https://icanhazip.com 2>/dev/null | tr -d '\r\n ')"
-    fi
-
-    if [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-      echo "$out"
-    else
-      echo ""
-    fi
-  }
-
-  ip="$(_pick_best_ipv4)"
-
-  if [[ -z "$ip" ]]; then
-    IS_LAN=1
-    PUBLIC_IP="$(_get_public_ipv4)"
-    [[ -z "$PUBLIC_IP" ]] && PUBLIC_IP=""
-    return 0
-  fi
-
-  if [[ "$ip" =~ ^10\. ]] || \
-     [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-     [[ "$ip" =~ ^192\.168\. ]] || \
-     [[ "$ip" =~ ^169\.254\. ]]; then
-    IS_LAN=1
-    wan="$(_get_public_ipv4)"
-    PUBLIC_IP="${wan:-}"
-  else
-    IS_LAN=0
-    PUBLIC_IP="$ip"
-  fi
-
-  return 0
-}
-
-
-
-is_lan
-
-
-
 
 service_exists() {
   local svc="$1"
@@ -342,9 +111,410 @@ restart() {
     fi
   done
 
-  echo "Services restarted"
+  echo "✅ This message has been translated into English.Completed"
   exit 0
 }
+
+echo "[setup] args: $*"
+
+for arg in "$@"; do
+   case "${arg}" in
+     tool) KERNEL_TUNE_ONLY=1 ;;
+     vhost) vhost; exit 0 ;;
+     -h|--help|help) usage; exit 0 ;;
+     restart) restart; exit 0 ;;
+     status) status; exit 0 ;;
+     webdav) webdav; exit 0 ;;
+     sshkey) sshkey; exit 0 ;;
+     remove) remove; exit 0 ;;
+     renginx) renginx; exit 0 ;;
+     rephp) rephp; exit 0 ;;
+     remariadb) remariadb; exit 0 ;;
+     fixsshd) fixsshd; exit 0 ;;
+     "") ;;
+     *) echo "[setup] This message has been translated into English.: ${arg}"; usage; exit 1 ;;
+   esac
+ done
+ 
+fixsshd() {
+  echo "=========================================="
+  echo "[+] Starting SSHD configuration and key permission repair..."
+  echo "=========================================="
+  set -euo pipefail
+
+
+  mkdir -p /etc/ssh/sshd_config.d
+  chown -R root:root /etc/ssh
+  chmod 755 /etc/ssh /etc/ssh/sshd_config.d
+  find /etc/ssh/sshd_config.d -type f -exec chown root:root {} \; -exec chmod 0644 {} \;
+  echo "[OK] Directory permissions fixed。"
+
+
+  rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub || true
+  ssh-keygen -A >/dev/null
+  chown root:root /etc/ssh/ssh_host_*_key
+  chmod 600 /etc/ssh/ssh_host_*_key
+  echo "[OK] SSH HostKey regenerated。"
+
+
+  echo "[*] Checking sshd configuration..."
+  if ! /usr/sbin/sshd -t; then
+    echo "[!] sshd This message has been translated into English.，This message has been translated into English.："
+    /usr/sbin/sshd -t -E /tmp/sshd-check.log || true
+    tail -n +1 /tmp/sshd-check.log
+    echo "=========================================="
+    echo "[X] sshd This message has been translated into English.，This message has been translated into English.。"
+    echo "=========================================="
+    return 1
+  fi
+  echo "[OK] sshd configuration check passed。"
+
+
+  systemctl daemon-reload
+  systemctl restart ssh || systemctl restart sshd || true
+  echo "[OK] sshd This message has been translated into English.，This message has been translated into English.："
+  systemctl status ssh --no-pager --full || systemctl status sshd --no-pager --full || true
+  echo "=========================================="
+  echo "[✓] SSH repair process completed。"
+  echo "=========================================="
+}
+
+wslinit() {
+
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "[-] Please run as root or with sudo："
+    echo "    sudo bash $0"
+    return 1
+  fi
+
+  
+
+  echo "[3/7] Updating index and upgrading system..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt update
+  apt -y full-upgrade
+
+  echo "[4/7] Installing common tools and openssh-server..."
+  apt install -y \
+    build-essential ca-certificates \
+    curl wget unzip git cmake pkg-config \
+    htop net-tools iproute2 \
+    openssh-server
+  update-ca-certificates || true
+
+  echo "[5/7] Configuring SSH（This message has been translated into English. root & This message has been translated into English.，This message has been translated into English.）..."
+  SSHD_CFG="/etc/ssh/sshd_config"
+  set_sshd_option() {
+    local key="$1" value="$2"
+    if grep -qE "^[#[:space:]]*${key}\b" "$SSHD_CFG"; then
+      sed -i "s/^[#[:space:]]*${key}.*/${key} ${value}/" "$SSHD_CFG"
+    else
+      echo "${key} ${value}" >>"$SSHD_CFG"
+    fi
+  }
+  install -d -m 0755 /run/sshd
+  ssh-keygen -A
+
+  set_sshd_option "PermitRootLogin" "yes" 
+  set_sshd_option "PasswordAuthentication" "yes"
+  set_sshd_option "PermitEmptyPasswords" "no"
+  set_sshd_option "PubkeyAuthentication" "yes"
+  set_sshd_option "UsePAM" "yes"
+
+  echo "[6/7] Starting/restarting SSH service..."
+  if command -v systemctl >/dev/null 2>&1; then
+
+    systemctl enable ssh >/dev/null 2>&1 || systemctl enable sshd >/dev/null 2>&1 || true
+    systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true
+  elif command -v service >/dev/null 2>&1; then
+    service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || true
+  else
+    /usr/sbin/sshd || true
+  fi
+
+  echo "[7/7] Setting root password（This message has been translated into English.；This message has been translated into English.）..."
+  (passwd root || true)
+
+  echo "[7.1/7] This message has been translated into English. /etc/wsl.conf（This message has been translated into English. systemd，This message has been translated into English. root）..."
+  cat >/etc/wsl.conf <<'EOF'
+[boot]
+systemd=true
+[user]
+default=root
+EOF
+  fixsshd || echo "[WARN] sshd This message has been translated into English.，This message has been translated into English. bash wnmp.sh fixsshd This message has been translated into English.。"
+  echo
+  echo "================= Completed ================="
+  echo "[OK] This message has been translated into English.（${ID_LOWER}:${CODENAME})."
+  echo "[OK] This message has been translated into English.，This message has been translated into English. openssh-server This message has been translated into English.。"
+  echo "[OK] SSH This message has been translated into English. root + This message has been translated into English.。"
+  echo
+  echo "This message has been translated into English.："
+  echo "  1) This message has been translated into English. WSL2 This message has been translated into English.，This message has been translated into English. ssh This message has been translated into English.，This message has been translated into English.："
+  echo "       systemctl start sshd"
+  echo
+  echo "  2) This message has been translated into English.（WSL This message has been translated into English.）This message has been translated into English.："
+  echo "       ssh root@127.0.0.1"
+  echo
+  echo "  3) This message has been translated into English.，This message has been translated into English.："
+  echo "       ssh root@This message has been translated into English.IP"
+  echo
+  echo "  4) This message has been translated into English.，This message has been translated into English.："
+  echo "       /etc/apt/sources.list.bak.*"
+  echo
+  echo "  5) This message has been translated into English.wslThis message has been translated into English.Completed，This message has been translated into English.，This message has been translated into English."
+  echo
+  echo "  6) This message has been translated into English.win11This message has been translated into English.，This message has been translated into English.linuxThis message has been translated into English. bash wnmp.sh This message has been translated into English.webThis message has been translated into English."
+  echo
+  echo "========================================"
+  exit 1
+}
+
+
+
+IS_LAN=1
+PUBLIC_IP=""
+IS_CN=0
+
+is_lan() {
+    IS_LAN=0
+    local ip="" wan="" local_ip=""
+
+    _pick_best_ipv4() {
+        local x private=""
+     
+        local ip_list=""
+        if command -v hostname >/dev/null 2>&1; then
+            ip_list=$(hostname -I 2>/dev/null)
+        fi
+        
+        if [ -z "$ip_list" ] && command -v ip >/dev/null 2>&1; then
+            ip_list=$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[\d.]+')
+        fi
+        
+        
+        if [ -z "$ip_list" ] && command -v ifconfig >/dev/null 2>&1; then
+            ip_list=$(ifconfig 2>/dev/null | grep -oP 'inet \K[\d.]+')
+        fi
+        
+        for x in $ip_list; do
+            [[ -z "$x" ]] && continue
+            [[ "$x" =~ : ]] && continue
+            [[ "$x" =~ ^127\. ]] && continue
+          
+            if [[ "$x" =~ ^10\. ]] || \
+               [[ "$x" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
+               [[ "$x" =~ ^192\.168\. ]] || \
+               [[ "$x" =~ ^169\.254\. ]]; then
+                [[ -z "$private" ]] && private="$x"
+                continue
+            fi
+          
+            echo "$x"
+            return 0
+        done
+        
+      
+        [[ -n "$private" ]] && echo "$private"
+       
+        echo ""
+    }
+
+   
+    _get_public_ipv4() {
+        local out=""
+        
+      
+        local api_services=(
+            "https://api.ipify.org"
+            "https://ifconfig.me/ip" 
+            "https://checkip.amazonaws.com"
+            "https://icanhazip.com"
+        )
+        
+        
+        if command -v curl >/dev/null 2>&1; then
+            for api in "${api_services[@]}"; do
+                out="$(curl -4fsS --max-time 3 "$api" 2>/dev/null 2>&1 | tr -d '\r\n ')"
+                if [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    echo "$out"
+                    return 0
+                fi
+            done
+        elif command -v wget >/dev/null 2>&1; then
+            for api in "${api_services[@]}"; do
+                out="$(wget -4qO- --timeout=3 "$api" 2>/dev/null 2>&1 | tr -d '\r\n ')"
+                if [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    echo "$out"
+                    return 0
+                fi
+            done
+        fi
+        
+       
+        echo "unknown"
+    }
+
+ 
+    local_ip="$(_pick_best_ipv4)"
+    
+   
+    public_ip="$(_get_public_ipv4)"
+    
+  
+    if [[ -n "$local_ip" ]]; then
+    
+        if [[ "$local_ip" =~ ^10\. ]] || \
+           [[ "$local_ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
+           [[ "$local_ip" =~ ^192\.168\. ]] || \
+           [[ "$local_ip" =~ ^169\.254\. ]]; then
+            IS_LAN=1
+            PUBLIC_IP="${public_ip:-$local_ip}"
+        else
+            IS_LAN=0
+            PUBLIC_IP="$local_ip"
+        fi
+    else
+       
+        IS_LAN=1
+        PUBLIC_IP="$public_ip"
+    fi
+    
+   
+    [[ -z "$PUBLIC_IP" ]] && PUBLIC_IP="unknown"
+    
+    echo "$PUBLIC_IP"
+    return 0
+}
+
+detect_cn_ip() {
+  
+    IS_CN=0
+    local country=""
+    local PUBLIC_IP_LOCAL="${PUBLIC_IP}" 
+
+
+    if [[ -z "$PUBLIC_IP_LOCAL" ]] || [[ "$PUBLIC_IP_LOCAL" == "unknown" ]]; then
+        return  
+    fi
+
+    
+    is_valid_ipv4() {
+        local ip="$1"
+       
+        local ipv4_regex="^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+        [[ "$ip" =~ $ipv4_regex ]]
+    }
+
+   
+    if ! is_valid_ipv4 "$PUBLIC_IP_LOCAL"; then
+        return
+    fi
+
+  
+    if command -v curl >/dev/null 2>&1; then
+       
+        country="$(curl -fsS --max-time 3 "https://ipinfo.io/${PUBLIC_IP_LOCAL}/country" 2>/dev/null | tr -d '\r\n ')"
+       
+        if [[ -z "$country" ]]; then
+            country="$(curl -fsS --max-time 3 "http://ip-api.com/line/${PUBLIC_IP_LOCAL}?fields=countryCode" 2>/dev/null | tr -d '\r\n ')"
+        fi
+    
+    elif command -v wget >/dev/null 2>&1; then
+        country="$(wget -qO- --timeout=3 "https://ipinfo.io/${PUBLIC_IP_LOCAL}/country" 2>/dev/null | tr -d '\r\n ')"
+        if [[ -z "$country" ]]; then
+            country="$(wget -qO- --timeout=3 "http://ip-api.com/line/${PUBLIC_IP_LOCAL}?fields=countryCode" 2>/dev/null | tr -d '\r\n ')"
+        fi
+  
+    else
+        return
+    fi
+
+   
+    if [[ "$country" == "CN" ]] || [[ "$country" == "cn" ]]; then
+        IS_CN=1 
+    fi
+
+   
+    return
+}
+
+aptinit() {
+    
+    
+    echo "Current IP: $PUBLIC_IP, IS_CN=$IS_CN"
+    
+    if [[ "$IS_CN" -eq 1 ]]; then
+        echo "Mainland China IP detected, using domestic mirrors..."
+        
+        echo "This message has been translated into English...."
+        . /etc/os-release 2>/dev/null || { 
+            echo "This message has been translated into English. /etc/os-release，This message has been translated into English."
+            IS_CN=0
+        }
+        
+        if [[ "$IS_CN" -eq 1 ]]; then
+            ID_LOWER="$(echo "${ID:-}" | tr '[:upper:]' '[:lower:]')"
+            CODENAME="${VERSION_CODENAME:-}"
+            echo "    ID=${ID_LOWER}, CODENAME=${CODENAME}"
+            
+            echo "This message has been translated into English...."
+            if [ -f /etc/apt/sources.list ]; then
+                cp /etc/apt/sources.list "/etc/apt/sources.list.bak.$(date +%Y%m%d-%H%M%S)"
+            fi
+            
+            if [ -d /etc/apt/sources.list.d ]; then
+                mkdir -p /etc/apt/sources.list.d/backup 2>/dev/null
+                mv /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/backup/ 2>/dev/null || true
+                mv /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/backup/ 2>/dev/null || true
+            fi
+            
+            if [ "$ID_LOWER" = "ubuntu" ]; then
+                CODENAME="${CODENAME:-noble}"
+                cat >/etc/apt/sources.list <<EOF
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME} main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ ${CODENAME} main restricted universe multiverse
+
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-security main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-security main restricted universe multiverse
+
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-updates main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-updates main restricted universe multiverse
+
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-backports main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-backports main restricted universe multiverse
+EOF
+                echo "Aliyun mirror written Ubuntu This message has been translated into English.（${CODENAME}）"
+            elif [ "$ID_LOWER" = "debian" ]; then
+                CODENAME="${CODENAME:-trixie}"
+                cat >/etc/apt/sources.list <<EOF
+deb https://mirrors.aliyun.com/debian/ ${CODENAME} main contrib non-free non-free-firmware
+deb https://mirrors.aliyun.com/debian/ ${CODENAME}-updates main contrib non-free non-free-firmware
+deb https://mirrors.aliyun.com/debian-security/ ${CODENAME}-security main contrib non-free non-free-firmware
+deb https://mirrors.aliyun.com/debian/ ${CODENAME}-backports main contrib non-free non-free-firmware
+EOF
+                echo "Aliyun mirror written Debian This message has been translated into English.（${CODENAME}）"
+            else
+                echo "Unrecognized distribution：${ID_LOWER}，This message has been translated into English.。"
+            fi
+        fi
+    else
+        echo "Non-mainland IP, using default mirrors..."
+    fi
+    
+    echo "Updating index and upgrading system..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt update || echo "apt update This message has been translated into English.，This message has been translated into English...."
+    apt -y full-upgrade || echo "apt upgrade This message has been translated into English.，This message has been translated into English...."
+    update-ca-certificates 2>/dev/null || true
+    
+    echo "aptinit Completed"
+    return 0
+}
+
+is_lan
+detect_cn_ip
+aptinit
 
 
 
@@ -352,21 +522,21 @@ restart() {
 webdav() {
   local domain user pass passwd_file ans
 
-  read -rp "Enable WebDAV？[y/N] " ans
+  read -rp "Enable WebDAV?？[y/N] " ans
   ans="${ans:-N}"
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-    echo "[webdav] Skipped."
+    echo "[webdav] Skipped。"
     return 0
   fi
-
+  
   while :; do
-    read -rp "If the site has multiple domain names, please enter the final redirect domain. (e.g., site.example.com):" domain
+    read -rp "This message has been translated into English.，This message has been translated into English.（This message has been translated into English.：wwww.example.com）:" domain
     [[ -n "$domain" ]] && break
-    echo "[webdav][WARN] Domain cannot be empty。"
+    echo "[webdav][WARN] This message has been translated into English.。"
   done
 
 
-  read -rp "Enable public directory by default? (No)[y/N] " ans
+  read -rp "This message has been translated into English. This message has been translated into English.（This message has been translated into English.）？[y/N] " ans
   ans="${ans:-N}"
   local enable_public=0
   [[ "$ans" =~ ^[Yy]$ ]] && enable_public=1
@@ -380,7 +550,7 @@ webdav() {
     conf_path="$VHOST_DIR/${domain_lc#www.}.conf"
   fi
   if [[ ! -f "$conf_path" ]]; then
-    echo "[webdav][ERROR] Config not found：$VHOST_DIR/${domain_lc}.conf OR ${domain_lc#www.}.conf"
+    echo "[webdav][ERROR] This message has been translated into English.：$VHOST_DIR/${domain_lc}.conf This message has been translated into English. ${domain_lc#www.}.conf"
     return 1
   fi
 
@@ -392,12 +562,12 @@ webdav() {
   elif [[ -x /usr/sbin/nginx ]]; then
     NGINX_BIN="/usr/sbin/nginx"
   else
-    echo "[webdav][ERROR] Nginx binary not found; consider ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx"
+    echo "[webdav][ERROR] This message has been translated into English. nginx This message has been translated into English.；This message has been translated into English. ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx"
     return 1
   fi
 
   backup="${conf_path}.bak-$(date +%Y%m%d-%H%M%S)"
-  cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] Backup failed：$backup"; return 1; }
+  cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] This message has been translated into English.：$backup"; return 1; }
 
  
   insert_once() { 
@@ -440,15 +610,15 @@ webdav() {
   if [[ $enable_public -eq 1 ]]; then
   
     sed -i '/^[[:space:]]*include[[:space:]]\+enable-php\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] Removed include enable-php.conf;（Disable PHP execution）"
+    echo "[webdav] This message has been translated into English. include enable-php.conf;（This message has been translated into English. PHP This message has been translated into English.）"
     insert_once "$conf_path" "include download.conf;"
-    echo "[webdav] Ensured include download.conf;"
+    echo "[webdav] This message has been translated into English. include download.conf;"
   else
 
     sed -i '/^[[:space:]]*include[[:space:]]\+download\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] Removed include download.conf;"
+    echo "[webdav] This message has been translated into English. include download.conf;"
     insert_once "$conf_path" "include enable-php.conf;"
-    echo "[webdav] Ensured include enable-php.conf;"
+    echo "[webdav] This message has been translated into English. include enable-php.conf;"
   fi
 
 
@@ -458,9 +628,9 @@ webdav() {
     else
       "$NGINX_BIN" -s reload
     fi
-    echo "[webdav] ✅ Config applied。"
+    echo "[webdav] ✅ This message has been translated into English.。"
   else
-    echo "[webdav][ERROR] nginx -t Failed，Rolling back to：$backup"
+    echo "[webdav][ERROR] nginx -t This message has been translated into English.，This message has been translated into English.：$backup"
     cp -a "$backup" "$conf_path" >/dev/null 2>&1 || true
     return 1
   fi
@@ -473,19 +643,19 @@ webdav() {
   while :; do
     read -rp "Enter WebDAV username：" user
     [[ -n "$user" ]] && break
-    echo "[webdav][WARN] Username cannot be empty。"
+    echo "[webdav][WARN] This message has been translated into English.。"
   done
 
   read -rs -p "Enter WebDAV password：" pass; echo
 
   if [[ -f "$passwd_file" ]]; then
-    echo "[webdav] Existing password file detected, appending account..."
+    echo "[webdav] This message has been translated into English.，This message has been translated into English...."
     htpasswd -bB "$passwd_file" "$user" "$pass"
   else
-    echo "[webdav] No password file found, creating..."
+    echo "[webdav] This message has been translated into English.，This message has been translated into English...."
     htpasswd -cbB "$passwd_file" "$user" "$pass"
   fi
- 
+
   chown www:www "$passwd_file" 2>/dev/null || true
   chmod 640 "$passwd_file" 2>/dev/null || true
 
@@ -498,26 +668,25 @@ webdav() {
 
 
 vhost() {
-if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+    red "[env] LAN environment detected, certificate issuance will be skipped。"
+    read -rp "Force certificate issuance?？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] This message has been translated into English.。"
+      IS_LAN=0
+    else
+      red "[env] This message has been translated into English.。"
+    fi
+  else
+    green "[env] Public network detected, certificate issuance available。"
+  fi
   if ! (echo $BASH_VERSION >/dev/null 2>&1); then
-    echo "[vhost][ERROR] Please run this script with bash."; return 1
+    echo "[vhost][ERROR] This message has been translated into English. bash This message has been translated into English.。"; return 1
   fi
   set -euo pipefail
 
   local tmpl
-
 
 if [[ "$IS_LAN" -eq 1 ]]; then
  tmpl=$(cat <<'EOF'
@@ -547,7 +716,6 @@ server{
         add_header Content-Type "text/html; charset=utf-8";
         try_files /404.html =404;
     }
-
     tcp_nopush on;
     tcp_nodelay on;
     include enable-php.conf;
@@ -586,7 +754,6 @@ server{
         
     }
 
-   
     access_log off;
 }
 EOF
@@ -635,6 +802,7 @@ server{
     ssl_session_timeout 1d;
     ssl_session_tickets off;
    
+
     location ~* /(low)/                 { deny all; }
     location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
     location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
@@ -701,6 +869,7 @@ EOF
 fi
 
 
+
   local vhost_dir="/usr/local/nginx/vhost"
   local webroot_base="/home/wwwroot"
   local owner="www:www"
@@ -717,8 +886,9 @@ fi
 
 
   local DOMAINS=()
-  read -rp "Please enter the domain names to create (multiple entries allowed, separated by spaces).： " -a DOMAINS
-  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] No domain entered. Quitting."; return 1; }
+  read -rp "Enter domain names to create（This message has been translated into English.，This message has been translated into English.）： " -a DOMAINS
+  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] This message has been translated into English.，This message has been translated into English.。"; return 1; }
+
   local _filtered=()
   local d
   for d in "${DOMAINS[@]}"; do
@@ -726,7 +896,7 @@ fi
     [[ -n "$d" ]] && _filtered+=("$d")
   done
   DOMAINS=("${_filtered[@]}")
-  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] No valid domains provided, exiting."; return 1; }
+  [[ ${#DOMAINS[@]} -gt 0 ]] || { echo "[vhost] This message has been translated into English.，This message has been translated into English.。"; return 1; }
 
   local primary="${DOMAINS[0]}"
   local others=()
@@ -735,16 +905,16 @@ fi
 
   local issue_cert="n"
   local ans
-  read -rp "Issue certificates for these domains now?[Y/n] " ans
+  read -rp "Apply certificates for these domains now?？[Y/n] " ans
   ans="${ans:-Y}"
   [[ "$ans" == [Yy] ]] && issue_cert="y"
   if [[ "$issue_cert" == "y" && -z "$acme_bin" ]]; then
-    echo "[vhost][WARN] acme.sh not found, skipping certificate issuance."; issue_cert="n"
+     echo "[vhost][WARN] This message has been translated into English. acme.sh，This message has been translated into English.。"; issue_cert="n"
+  fi
+  if [[ "$IS_LAN" -eq 1 ]]; then
+      echo "[env] LAN environment detected, certificate issuance will be skipped。"; issue_cert="n"
   fi
 
-  if [[ "$IS_LAN" -eq 1 ]]; then
-      echo "[env] This is an internal network environment; certificate requests will be skipped."; issue_cert="n"
-  fi
   remove_old_redirects() { 
     sed -i '/# BEGIN AUTO-HTTPS-REDIRECT/,/# END AUTO-HTTPS-REDIRECT/d' "$1" || true
   }
@@ -846,7 +1016,7 @@ EOF
 
   mkdir -p "$site_root/.well-known/acme-challenge"
   chown -R "$owner" "$site_root"
-  echo "[vhost] Generated config file：$conf"
+  echo "[vhost] This message has been translated into English.：$conf"
 
 
   get_cf_token() {
@@ -867,9 +1037,9 @@ EOF
   local cert_success=0
   if [[ "$issue_cert" == "y" ]]; then
     bash "$acme_home/acme.sh" --set-default-ca --server letsencrypt || true
-    read -rp "Have these domains pointed to this server IP? (type yes to confirm): " ans
+    read -rp "This message has been translated into English.IP？(This message has been translated into English. yes This message has been translated into English.): " ans
     if [[ "${ans,,}" != "yes" ]]; then
-      echo "[safe] Operation cancelled. No changes made."; return 0
+      echo "[safe] This message has been translated into English.。This message has been translated into English.。"; return 0
     fi
 
     local CF_Token_val="" dns_cf_ok=0
@@ -881,15 +1051,15 @@ EOF
     mkdir -p "$ssl_dir"
     local -a args
     if [[ $dns_cf_ok -eq 1 ]]; then
-      echo "[vhost][ISSUE] Issuing for all domains using dns_cf..."
+      echo "[vhost][ISSUE] This message has been translated into English. dns_cf This message has been translated into English...."
       args=( --issue --server letsencrypt --dns dns_cf -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
-      CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 --force|| true
+      CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
     else
-      echo "[vhost][ISSUE] Issuing for all domains using webroot..."
+      echo "[vhost][ISSUE] This message has been translated into English. webroot This message has been translated into English...."
       args=( --issue --server letsencrypt -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
-      args+=( --webroot "$site_root" --keylength ec-256 --force )
+      args+=( --webroot "$site_root" --keylength ec-256 )
       "$acme_bin" "${args[@]}" || true
     fi
 
@@ -902,11 +1072,11 @@ EOF
 
     if [[ -s "$ssl_dir/key.pem" && -s "$ssl_dir/cert.pem" ]]; then
       cert_success=1
-      echo "[vhost][OK] Certificate is ready：$primary -> $ssl_dir"
+      echo "[vhost][OK] Certificate ready：$primary -> $ssl_dir"
       ensure_https_core "$conf"
       update_ssl_paths_single_dir "$conf" "$ssl_dir"
     else
-      echo "[vhost][WARN] Certificate issuance did not succeed and will be treated as no certificate requested." 
+      echo "[vhost][WARN] Certificate issuance failed，This message has been translated into English.“This message has been translated into English.”This message has been translated into English.。"
     fi
   fi
 
@@ -914,35 +1084,36 @@ EOF
   if [[ "$cert_success" -eq 1 ]]; then
     if [[ "$has_www_peer" -eq 1 ]]; then
       inject_after_server_name "$conf" "$REDIR_WWW_SSL"
-      echo "[vhost][HTTPS] Injected: force www + single redirect (includes HTTP→HTTPS)"
+      echo "[vhost][HTTPS] This message has been translated into English.：This message has been translated into English. www + This message has been translated into English.（This message has been translated into English. HTTP→HTTPS）"
     else
       inject_after_server_name "$conf" "$REDIR_PLAIN_SSL"
-      echo "[vhost][HTTPS] Injected: HTTP→HTTPS redirect"
+      echo "[vhost][HTTPS] This message has been translated into English.：HTTP→HTTPS This message has been translated into English."
     fi
   else
     if [[ "$has_www_peer" -eq 1 ]]; then
-       strip_ssl_lines "$conf"
-       inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
-       echo "[vhost][HTTP] Injected: www normalization (HTTP only)"
+      strip_ssl_lines "$conf"
+      inject_after_server_name "$conf" "$REDIR_WWW_NO_SSL"
+      echo "[vhost][HTTP] This message has been translated into English.：This message has been translated into English. HTTP This message has been translated into English. www This message has been translated into English."
+
     fi
-   
+    
   fi
 
 
   if /usr/local/nginx/sbin/nginx -t; then
     /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx
-    echo "[vhost] Nginx reloaded."
+    echo "[vhost] Nginx This message has been translated into English.。"
   else
-    echo "[vhost][ERROR] nginx configuration check failed."; return 1 
+    echo "[vhost][ERROR] nginx This message has been translated into English.。"; return 1
   fi
 
   if [[ "$cert_success" -eq 1 ]]; then
     webdav
   else
-    echo "[vhost][INFO] Skip WebDAV (due to certificate not enabled/failed to issue)." 
+    echo "[vhost][INFO] Skipping WebDAV（This message has been translated into English./This message has been translated into English.）。"
   fi
 
-  echo "[vhost] Done."
+  echo "[vhost] Completed。"
 }
 
 
@@ -955,8 +1126,8 @@ purge_nginx() {
   systemctl disable nginx 2>/dev/null || true
   rm -f /etc/systemd/system/nginx.service
   systemctl daemon-reload || true
-  rm -rf /usr/local/nginx /etc/nginx /var/log/nginx /home/wwwlogs/nginx_error.log \
-         /usr/sbin/nginx /usr/bin/nginx /root/nginx-* /usr/local/src/nginx-*
+  rm -rf /root/.acme.sh /usr/local/nginx /etc/nginx /var/log/nginx /home/wwwlogs/nginx_error.log \
+         /usr/sbin/nginx /usr/bin/nginx  /usr/local/src/nginx-*
 }
 purge_php() {
   echo "Purging PHP (if any)..."
@@ -970,7 +1141,7 @@ purge_php() {
          /usr/local/bin/php* \
          /usr/local/lib/php \
          /usr/lib/php \
-         /root/php-*/  /root/inotify* /root/php-*.tar.* /usr/local/src/php-* /root/swoole*
+         /usr/local/src/php-*
 
   apt purge -y 'php*' 2>/dev/null || true
   apt autoremove -y 2>/dev/null || true
@@ -994,13 +1165,14 @@ purge_mariadb() {
   fi
 
   if [ "$has_mariadb_service" -eq 0 ] && [ "$has_mariadb_bins" -eq 0 ] && [ "$has_mysql_datadir" -eq 0 ]; then
-    echo "[mariadb] No MariaDB components found — skipping backup and cleanup."
+    echo "[mariadb] This message has been translated into English. MariaDB This message has been translated into English.，This message has been translated into English.。"
   else
-
+ 
     backup_done=0
     ts="$(date +%Y%m%d_%H%M%S)"
     backup_file="/home/all_databases_backup_${ts}.sql.gz"
 
+   
     mysql_cmd_base=(mysql --connect-timeout=3 --protocol=SOCKET -uroot)
     mysqldump_cmd_base=(mysqldump --single-transaction --default-character-set=utf8mb4 --routines --events --flush-privileges --all-databases)
 
@@ -1020,25 +1192,26 @@ purge_mariadb() {
     fi
 
     if "${mysql_cmd_base[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
-      echo "[backup] Detected a running MariaDB instance — starting full database backup: ${backup_file}"
+      echo "[backup] This message has been translated into English. MariaDB，This message has been translated into English.：${backup_file}"
       mkdir -p /home
-
+    
       if command -v ionice >/dev/null 2>&1; then
         ionice -c2 -n7 nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
       else
         nice -n 19 "${mysqldump_cmd_base[@]}" | gzip -c > "${backup_file}"
       fi
-
+    
       if [ -s "${backup_file}" ]; then
-        echo "[backup] Backup completed successfully: ${backup_file}"
+        echo "[backup] This message has been translated into English.Completed：${backup_file}"
         backup_done=1
       else
-        echo "[backup][WARN] Backup file is empty — possible backup failure: ${backup_file}"
+        echo "[backup][WARN] This message has been translated into English.，This message has been translated into English.：${backup_file}"
       fi
     else
-      echo "[backup][WARN] Unable to connect to MariaDB — skipping backup (no root credentials or service unavailable)."
+      echo "[backup][WARN] This message has been translated into English. MariaDB，This message has been translated into English.（This message has been translated into English. root This message has been translated into English.）。"
     fi
 
+   
     echo "Purging MariaDB (if any)..."
     systemctl stop mariadb 2>/dev/null || true
     systemctl stop mysql 2>/dev/null || true
@@ -1049,15 +1222,15 @@ purge_mariadb() {
 
     rm -rf /usr/local/mariadb /usr/local/mroonga /etc/my.cnf /etc/mysql /home/mariadb \
            /var/lib/mysql /var/log/mysql \
-           /usr/bin/mysql* /usr/bin/mysqld* /root/mariadb-* /root/mroonga* /usr/local/src/mariadb-*
+           /usr/bin/mysql* /usr/bin/mysqld* /usr/local/src/mariadb-*
 
     apt purge -y 'mariadb*' 'mysql-*' 2>/dev/null || true
     apt autoremove -y 2>/dev/null || true
 
     if [ "$backup_done" -eq 1 ]; then
-      echo "[done] MariaDB has been purged. Backup saved at: ${backup_file}"
+      echo "[done] MariaDB This message has been translated into English.，This message has been translated into English.：${backup_file}"
     else
-      echo "[done] MariaDB has been purged (no backup created or backup failed)."
+      echo "[done] MariaDB This message has been translated into English.（This message has been translated into English.）。"
     fi
   fi
 }
@@ -1068,27 +1241,27 @@ remove(){
   purge_nginx
   purge_php
   purge_mariadb
-  echo "nginx,php,mariadbhas been fully removed"
+  echo "nginx,php,mariadbThis message has been translated into English."
   exit 0
 
 }
 renginx(){
   purge_nginx
-  echo "nginxhas been removed"
+  echo "nginxThis message has been translated into English."
   exit 0
 
 }
 
 rephp(){
   purge_php
-  echo "phphas been removed"
+  echo "phpThis message has been translated into English."
   exit 0
 
 }
 
 remariadb(){
   purge_mariadb
-  echo "mariadbhas been removed"
+  echo "mariadbThis message has been translated into English."
   exit 0
 
 }
@@ -1099,18 +1272,17 @@ KERNEL_TUNE_ONLY=0
 
 
 
-
 sshkey() {
-
+ 
   echo
   echo "====================================================================="
-  echo "⚠️  Strong Reminder: Before you confirm that the PRIVATE KEY has been saved on your local computer,"
-  echo "⚠️  DO NOT disconnect this SSH session, otherwise you will lose access to the server!"
+  echo "⚠️  This message has been translated into English.：This message has been translated into English.【This message has been translated into English.】This message has been translated into English."
+  echo "⚠️  This message has been translated into English. SSH This message has been translated into English.，This message has been translated into English.！"
   echo "====================================================================="
   echo
-  read -rp "Continue and enable root key-only login? (type yes to confirm): " ans
+  read -rp "This message has been translated into English. root This message has been translated into English.？(This message has been translated into English. yes This message has been translated into English.): " ans
   if [[ "${ans,,}" != "yes" ]]; then
-    echo "[safe] Operation canceled. No changes made."
+    echo "[safe] This message has been translated into English.。This message has been translated into English.。"
     return 0
   fi
 
@@ -1121,7 +1293,7 @@ sshkey() {
   fi
   [[ -z "${SSHD_BIN}" && -x /sbin/sshd ]] && SSHD_BIN="/sbin/sshd"
   if [[ -z "${SSHD_BIN}" ]]; then
-    echo "[safe][ERROR] sshd executable not found. Please install openssh-server first."
+    echo "[safe][ERROR] This message has been translated into English. sshd This message has been translated into English.，This message has been translated into English. openssh-server。"
     return 1
   fi
 
@@ -1142,12 +1314,13 @@ sshkey() {
   local OVR_FILE="${OVR_DIR}/zzz-root-keys-only.conf"
   local OVR_BACKUP_DIR="/etc/ssh/sshd_config.d.bak-${NOW}"
 
-  echo "[safe] Configuring root user for [key-only login]..."
+  echo "[safe] This message has been translated into English. root This message has been translated into English.【This message has been translated into English.】..."
+
 
   if grep -Eq '^[[:space:]]*ClientAliveInterval[[:space:]]+[0-9]+[[:space:]]+[^#]+' "$SSHD_MAIN"; then
     cp -a "$SSHD_MAIN" "${SSHD_MAIN}.prelint-${NOW}"
     sed -i -E 's/^([[:space:]]*ClientAliveInterval)[[:space:]]+[0-9]+.*/\1 120/' "$SSHD_MAIN"
-    echo "[safe] Fixed malformed tail comment: ClientAliveInterval line normalized to 'ClientAliveInterval 120'"
+    echo "[safe] This message has been translated into English.：ClientAliveInterval This message has been translated into English. 'ClientAliveInterval 120'"
   fi
 
 
@@ -1157,29 +1330,29 @@ sshkey() {
 
 
   if ! ls /etc/ssh/ssh_host_*key >/dev/null 2>&1; then
-    echo "[safe] No host keys found, generating (ssh-keygen -A)..."
+    echo "[safe] This message has been translated into English. HostKeys，This message has been translated into English.（ssh-keygen -A）..."
     ssh-keygen -A
   fi
 
 
   local PASSPHRASE_OPT=""
   echo
-  read -rp "Add a passphrase to the new key (you’ll need it when logging in)? [y/N]: " setpass
+  read -rp "This message has been translated into English.（This message has been translated into English.）？[y/N]: " setpass
   if [[ "${setpass,,}" =~ ^(y|yes)$ ]]; then
-    echo "[safe] Passphrase will be set for the new key..."
+    echo "[safe] This message has been translated into English...."
     PASSPHRASE_OPT="-N"
   else
     PASSPHRASE_OPT="-N \"\""
   fi
 
-
+ 
   if [[ -f "${PRIV_KEY}" || -f "${PUB_KEY}" ]]; then
-    echo "[safe] Existing root key pair detected, backing up..."
+    echo "[safe] This message has been translated into English. root This message has been translated into English.，This message has been translated into English...."
     [[ -f "${PRIV_KEY}" ]] && mv -f "${PRIV_KEY}" "${PRIV_KEY}.bak-${NOW}"
     [[ -f "${PUB_KEY}"  ]] && mv -f "${PUB_KEY}"  "${PUB_KEY}.bak-${NOW}"
   fi
 
-  echo "[safe] Generating ED25519 key pair..."
+  echo "[safe] This message has been translated into English. ED25519 This message has been translated into English...."
   if [[ "${PASSPHRASE_OPT}" == "-N" ]]; then
     ssh-keygen -t ed25519 -a 100 -C "${COMMENT}" -f "${PRIV_KEY}"
   else
@@ -1204,13 +1377,13 @@ NEW_KEY_B64=$(awk '{print $2}' "${PUB_KEY}" | tr -d '
 NEW_KEY_LINE="${NEW_KEY_TYPE} ${NEW_KEY_B64} ${COMMENT}"
 
 if [[ -z "${NEW_KEY_TYPE}" || -z "${NEW_KEY_B64}" ]]; then
-  echo "[safe][ERROR] Unable to parse generated public key. Please check ${PUB_KEY}."
+  echo "[safe][ERROR] This message has been translated into English.，This message has been translated into English. ${PUB_KEY} This message has been translated into English.。"
   return 1
 fi
 
 if [[ -f "${AUTH_KEYS}" ]]; then
   cp -a "${AUTH_KEYS}" "${AUTH_KEYS}.bak-${NOW}"
-  echo "[safe] Original authorized_keys backed up as ${AUTH_KEYS}.bak-${NOW}"
+  echo "[safe] This message has been translated into English. ${AUTH_KEYS}.bak-${NOW}"
 else
   touch "${AUTH_KEYS}"
 fi
@@ -1225,28 +1398,28 @@ chmod 600 "${AUTH_KEYS}.tmp"
 chown root:root "${AUTH_KEYS}.tmp"
 mv -f "${AUTH_KEYS}.tmp" "${AUTH_KEYS}"
 
-echo "[safe] Authorized key file updated: only the newly generated key retained (${AUTH_KEYS}). Old keys backed up to ${AUTH_KEYS}.bak-${NOW}."
+echo "[safe] This message has been translated into English.：This message has been translated into English.（${AUTH_KEYS}）。This message has been translated into English. ${AUTH_KEYS}.bak-${NOW} 。"
 
 find "${SSH_DIR}" -maxdepth 1 -type f \( -name "${KEY_NAME}.bak-*" -o -name "${KEY_NAME}.pub.bak-*" -o -name "${KEY_NAME}.pub.bak-*" \) -print -exec rm -f {} \; || true
 
 find "${SSH_DIR}" -maxdepth 1 -type f -name "${KEY_NAME}.*.bak-*" -print -exec rm -f {} \; || true
 
-echo "[safe] Removed historical private/public key backups (if any)."
+echo "[safe] This message has been translated into English./This message has been translated into English.（This message has been translated into English.）。"
 
 chmod 700 "${SSH_DIR}"
 chmod 600 "${PRIV_KEY}"
-chmod 644 "${PUB_KEY}"
+chmod 644 "${PUB_KEY}" 
 chown root:root "${PRIV_KEY}" "${PUB_KEY}"
 
 
   cp -a "${SSHD_MAIN}" "${SSHD_BAK}"
-  echo "[safe] Main config backed up: ${SSHD_BAK}"
+  echo "[safe] This message has been translated into English.：${SSHD_BAK}"
 
   mkdir -p "${OVR_DIR}"
   if [ "$(find "${OVR_DIR}" -type f | wc -l)" -gt 0 ]; then
     mkdir -p "${OVR_BACKUP_DIR}"
     find "${OVR_DIR}" -maxdepth 1 -type f -print -exec mv -f {} "${OVR_BACKUP_DIR}/" \;
-    echo "[safe] Backed up and cleared /etc/ssh/sshd_config.d -> ${OVR_BACKUP_DIR}"
+    echo "[safe] This message has been translated into English. /etc/ssh/sshd_config.d -> ${OVR_BACKUP_DIR}"
   fi
 
 
@@ -1266,10 +1439,10 @@ EOF
   grep -Eq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' "$SSHD_MAIN" || sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' "$SSHD_MAIN"
 
 
-  echo "[safe] Checking sshd configuration syntax (${SSHD_BIN} -t)..."
+  echo "[safe] This message has been translated into English. sshd This message has been translated into English. (${SSHD_BIN} -t)..."
   if ! err="$("${SSHD_BIN}" -t 2>&1)"; then
-    echo "[safe][ERROR] sshd -t failed:"; echo "$err"
-    echo "[safe] Rolling back..."
+    echo "[safe][ERROR] sshd -t This message has been translated into English.："; echo "$err"
+    echo "[safe] This message has been translated into English...."
     rm -f "${OVR_FILE}" || true
     mv -f "${SSHD_BAK}" "${SSHD_MAIN}"
     if [ -d "${OVR_BACKUP_DIR}" ]; then
@@ -1291,54 +1464,49 @@ EOF
 
 
   echo
-  echo "[safe] Public key fingerprint (SHA256):"
+  echo "[safe] This message has been translated into English.（SHA256）："
   ssh-keygen -lf "${PUB_KEY}" -E sha256 | awk '{print " - "$0}'
   echo
   echo "====================================================================="
-  echo "✅ Root key-only login enabled successfully."
+  echo "✅ This message has been translated into English. root This message has been translated into English.【This message has been translated into English.】"
   echo
-  echo "🔐 IMPORTANT: DO NOT copy/paste the private key content."
-  echo "🔐 Private keys must be transferred as FILES to avoid corruption."
+  echo "🔐 This message has been translated into English.：This message has been translated into English.【This message has been translated into English.】This message has been translated into English. / This message has been translated into English.。"
+  echo "🔐 This message has been translated into English.【This message has been translated into English.】This message has been translated into English.，This message has been translated into English.。"
   echo
-  echo "➡️  Download the private key using SCP (recommended):"
+  echo "➡️  This message has been translated into English.：This message has been translated into English. SCP This message has been translated into English.："
   echo
-  echo "   scp -P <SSH_PORT> root@<SERVER_IP>:/root/.ssh/${KEY_NAME} ~/.ssh/${KEY_NAME}"
+  echo "   scp -P <SSHThis message has been translated into English.> root@<This message has been translated into English.IP>:/root/.ssh/${KEY_NAME} ~/.ssh/${KEY_NAME}"
   echo
-  echo "   Then set permissions:"
+  echo "   This message has been translated into English.CompletedThis message has been translated into English.："
   echo "   chmod 600 ~/.ssh/${KEY_NAME}"
   echo
-  echo "➡️  Or download via SFTP (WinSCP / FileZilla / Xshell File Transfer)."
+  echo "➡️  This message has been translated into English. SFTP This message has been translated into English.（WinSCP / FileZilla / Xshell This message has been translated into English.）。"
   echo
   echo "====================================================================="
   echo
-
-  
+ 
+ 
   local SERVER_IP
   SERVER_IP="$(ip -o -4 addr show | awk '!/ lo / && /inet /{gsub(/\/.*/,"",$4); print $4; exit}')"
-  echo "[safe] Test command: ssh -i ~/.ssh/${KEY_NAME} root@<SERVER>"
-  [[ -n "${SERVER_IP:-}" ]] && echo "      Current server IP: ${SERVER_IP}"
+  echo "[safe] This message has been translated into English.：ssh -i ~/.ssh/${KEY_NAME} root@<SERVER>"
+  [[ -n "${SERVER_IP:-}" ]] && echo "      This message has been translated into English. IP：${SERVER_IP}"
   echo
-  echo "[safe] Enabled: root login via key only."
-  echo "[safe] To revert: mv -f ${SSHD_BAK} ${SSHD_MAIN} && systemctl restart ssh"
+  echo "[safe] This message has been translated into English.：This message has been translated into English. root This message has been translated into English.。"
+  echo "[safe] This message has been translated into English.：mv -f ${SSHD_BAK} ${SSHD_MAIN} && systemctl restart ssh"
 
-  
   echo
-  echo "⚠️  Advanced option (NOT recommended)"
-  echo "⚠️  Only use this if SCP / SFTP cannot be used"
-  echo "⚠️  Copying private keys manually is very error-prone"
+  echo "⚠️  This message has been translated into English.（This message has been translated into English.）"
+  echo "⚠️  This message has been translated into English.【This message has been translated into English. SCP / SFTP This message has been translated into English.】This message has been translated into English."
+  echo "⚠️  This message has been translated into English. / This message has been translated into English.、This message has been translated into English.、This message has been translated into English."
   echo
-
-  read -rp "Do you still want to export the private key as String? (advanced users only) [y/N]: " export_string </dev/tty
+  read -rp "This message has been translated into English. This message has been translated into English. This message has been translated into English.？（This message has been translated into English.）[y/N]: " export_string </dev/tty
 
   if [[ "${export_string,,}" =~ ^(y|yes)$ ]]; then
     echo
     cat "${PRIV_KEY}"
     echo
-    echo "⚠️  Note: Do NOT use editors like Windows Notepad that may alter line endings or encoding"
+    echo "⚠️  This message has been translated into English.：This message has been translated into English./This message has been translated into English."
   fi
-
-
-
 
 }
 
@@ -1347,41 +1515,20 @@ EOF
 
 
 
-echo "[setup] args: $*"
-
-for arg in "$@"; do
-   case "${arg}" in
-     tool) KERNEL_TUNE_ONLY=1 ;;
-     vhost) vhost; exit 0 ;;
-     -h|--help|help) usage; exit 0 ;;
-     restart) restart; exit 0 ;;
-     status) status; exit 0 ;;
-     webdav) webdav; exit 0 ;;
-     sshkey) sshkey; exit 0 ;;
-     remove) remove; exit 0 ;;
-     renginx) renginx; exit 0 ;;
-     rephp) rephp; exit 0 ;;
-     remariadb) remariadb; exit 0 ;;
-     wslinit) wslinit; exit 0 ;;
-     fixsshd) fixsshd; exit 0 ;;
-     "") ;;
-     *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
-   esac
- done
 
 if [[ "$IS_LAN" -eq 1 ]]; then
-red "[env] Detected a LAN environment, certificate issuance will be skipped."
-read -rp "Do you want to force certificate issuance? [y/N] " ans
-ans="${ans:-N}"
-if [[ "$ans" =~ [Yy]$ ]]; then
-  green "[env] Forced certificate issuance enabled."
-  IS_LAN=0
-else
-  red "[env] Certificate issuance remains skipped."
-fi
-else
-green "[env] Public network detected, certificate issuance is available."
-fi
+    red "[env] LAN environment detected, certificate issuance will be skipped。"
+    read -rp "Force certificate issuance?？[y/N] " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ [Yy]$ ]]; then
+      green "[env] This message has been translated into English.。"
+      IS_LAN=0
+    else
+      red "[env] This message has been translated into English.。"
+    fi
+  else
+    green "[env] Public network detected, certificate issuance available。"
+  fi
 
 
 MYSQL_PASS='needpasswd'
@@ -1408,10 +1555,30 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "Error: you must be root to run this script."
   exit 1
 fi
- is_wsl=0
+
 if grep -qi "microsoft" /proc/version 2>/dev/null; then
-  is_wsl=1
+
+  ssh_running=0
+
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet ssh || systemctl is-active --quiet sshd; then
+      ssh_running=1
+    fi
+  fi
+
+
+  if [[ $ssh_running -eq 0 ]]; then
+    if pgrep -x sshd >/dev/null 2>&1; then
+      ssh_running=1
+    fi
+  fi
+
+  if [[ $ssh_running -eq 0 ]]; then
+    wslinit
+  fi
+
 fi
+
 
 wnmp_limits_tune() {
   local NOFILE="${1:-1048576}"
@@ -1472,6 +1639,7 @@ EOF
   systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
+
 wnmp_kernel_tune() {
 
 
@@ -1482,7 +1650,7 @@ wnmp_kernel_tune() {
 
   install -d "$(dirname "$SYSCTL_FILE")" 2>/dev/null || true
   if [ ! -f "$SYSCTL_FILE" ]; then
-    echo "[sysctl] create ${SYSCTL_FILE}"
+    echo "[sysctl] This message has been translated into English. ${SYSCTL_FILE}"
     printf '# created by wnmp setup\n' > "$SYSCTL_FILE"
   fi
 
@@ -1519,7 +1687,7 @@ EOF
     echo "$SECTION_TAG_END"
   } >> "$SYSCTL_FILE"
 
-  echo "[sysctl] Optimized block to: $SYSCTL_FILE"
+  echo "[sysctl] This message has been translated into English.: $SYSCTL_FILE"
 
 
   if [ -d /sys/kernel/mm/transparent_hugepage ]; then
@@ -1540,14 +1708,14 @@ WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
     systemctl enable disable-thp.service >/dev/null 2>&1 || true
-    echo "[thp] THP has been disabled and set to take effect at startup." 
+    echo "[thp] THP This message has been translated into English."
   fi
 
 
   modprobe tcp_bbr 2>/dev/null || true
 
 
-  echo "[sysctl] Reloading kernel parameters..."
+  echo "[sysctl] This message has been translated into English...."
   if [[ "$SYSCTL_FILE" == */sysctl.conf ]]; then
     sysctl -p || true
   else
@@ -1556,16 +1724,13 @@ UNIT
 
   wnmp_limits_tune 1048576 65535
 
-
-  echo -e "\033[32mKernel / network tuning completed (including BBR/fq, THP disabled, and limits configuration)\033[0m"
-  read -rp "A reboot is recommended to ensure all settings take effect (WSL requires restarting the Windows 11 host). Reboot now? [Y/n] " yn
-  [ -z "${yn:-}" ] && yn="y"
-  if [[ "$yn" =~ ^([yY]|[yY][eE][sS])$ ]]; then
-    echo "Rebooting..."
-    reboot
-  fi
-  
-  
+  echo -e "\033[32mThis message has been translated into English./This message has been translated into English.Completed（This message has been translated into English. BBR/fq、THP This message has been translated into English.、limits This message has been translated into English.）\033[0m"
+    read -rp "This message has been translated into English.（WSLThis message has been translated into English.Win11This message has been translated into English.），This message has been translated into English.? [Y/n] " yn
+    [ -z "${yn:-}" ] && yn="y"
+    if [[ "$yn" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+      echo "This message has been translated into English...."
+      reboot
+    fi
 }
 
 
@@ -1575,7 +1740,7 @@ if [ "$KERNEL_TUNE_ONLY" -eq 1 ]; then
   
   wnmp_kernel_tune
  
-  echo -e "${GREEN}Kernel/Network tuning only is complete${NC}"
+  echo -e "${GREEN}This message has been translated into English./This message has been translated into English.Completed${NC}"
   exit 0
 fi
 
@@ -1613,19 +1778,16 @@ fi
 export PATH="/usr/local/php/bin:/usr/local/mariadb/bin:${PATH}"
 hash -r
 
-echo -e "${GREEN}PATH has been written to /etc/profile.d/wnmp-path.sh and injected into /etc/bash.bashrc; the current session is now active.${NC}"
-echo -e "${GREEN}PHP path: $(command -v php || echo 'Not found')${NC}"
-
-
+echo -e "${GREEN}PATH This message has been translated into English. /etc/profile.d/wnmp-path.sh，This message has been translated into English. /etc/bash.bashrc；This message has been translated into English.。${NC}"
+echo -e "${GREEN}php This message has been translated into English.：$(command -v php || echo 'This message has been translated into English.')${NC}"
 
 PHP="/usr/local/php/bin/php"
 PHPIZE="/usr/local/php/bin/phpize"
 PHPCONFIG="/usr/local/php/bin/php-config"
 
 
-
 if [ -f /root/.pearrc ] || [ -f /usr/local/php/etc/pear.conf ]; then
-  echo -e "${RED}Old PEAR config found; removing to avoid PEAR/PECL errors...${NC}"
+  echo -e "${RED}This message has been translated into English. PEAR This message has been translated into English.，This message has been translated into English. PEAR/PECL This message has been translated into English....${NC}"
   rm -f /root/.pearrc /usr/local/php/etc/pear.conf
 fi
 
@@ -1660,36 +1822,36 @@ sysctl -p /etc/sysctl.d/99-swap.conf || true
 log "Current swap status:"; swapon --show || true; free -h || true
 
 
-echo "Please select PHP version:" 
+echo "This message has been translated into English.PHPThis message has been translated into English.:"
 php_version='0'
-select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
+select phpselcect in "This message has been translated into English.php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
-    "Do not install PHP") php_version='0'; break ;;
-    "php8.2") php_version='8.2.29'; break ;;
-    "php8.3") php_version='8.3.28'; break ;;
-    "php8.4") php_version='8.4.15'; break ;;
+    "This message has been translated into English.php") php_version='0'; break ;;
+    "php8.2") php_version='8.2.30'; break ;;
+    "php8.3") php_version='8.3.29'; break ;;
+    "php8.4") php_version='8.4.16'; break ;;
     "php8.5") php_version='8.5.0'; break ;;
-    *) echo "Invalid option $REPLY" ;; 
+    *) echo "This message has been translated into English. $REPLY";;
   esac
 done
 
-echo "Select MariaDB version:"
+echo "This message has been translated into English.mariadbThis message has been translated into English.:"
 mariadbselcect=''
 mariadb_version='0'
-select mariadbselcect in "Do not install MariaDB" "1GB Memory 10.6" "2GB The above memory 10.11" "4GB The above memory 11.8.5"; do
+select mariadbselcect in "This message has been translated into English.mariadb" "1GBThis message has been translated into English.10.6" "2GBThis message has been translated into English.10.11" "4GBThis message has been translated into English.11.8.5"; do
   case $mariadbselcect in
-    "Do not install MariaDB") mariadb_version='0'; break ;;
-    "1GB Memory 10.6") mariadb_version='10.6.24'; break ;;
-    "2GB The above memory 10.11") mariadb_version='10.11.15'; break ;;
-    "4GB The above memory 11.8.5") mariadb_version='11.8.5'; break ;;
-    *) echo "Invalid option $REPLY";; 
+    "This message has been translated into English.mariadb") mariadb_version='0'; break ;;
+    "1GBThis message has been translated into English.10.6") mariadb_version='10.6.24'; break ;;
+    "2GBThis message has been translated into English.10.11") mariadb_version='10.11.15'; break ;;
+    "4GBThis message has been translated into English.11.8.5") mariadb_version='11.8.5'; break ;;
+    *) echo "This message has been translated into English. $REPLY";;
   esac
 done
 if [ "$mariadb_version" != "0" ]; then
-  read -p "Enter MySQL root password [Default: needpasswd]: " MYSQL_PASS 
+  read -p "This message has been translated into English. MySQL root This message has been translated into English. [This message has been translated into English.: needpasswd]: " MYSQL_PASS
   MYSQL_PASS=${MYSQL_PASS:-needpasswd}
 fi
-read -rp "Install NGINX?(y/n): " choosenginx
+read -rp "This message has been translated into English.NGINX？(y/n): " choosenginx
 
 
 apt --fix-broken install -y
@@ -1707,21 +1869,20 @@ ensure_user  www www
 
 
 if [ "$php_version" != "0" ]; then
-  cd /root
+  cd "$WNMPDIR"
   purge_php
+  php_tar="php-$php_version.tar.gz"
   php_dir="php-$php_version"
-  rm -rf "$php_dir"
-  if [ ! -d "$php_dir" ]; then
-    php_url="https://www.php.net/distributions/php-$php_version.tar.gz"
-    wget -c "$php_url"
-    tar zxvf "php-$php_version.tar.gz"
-  else
-    log "php-$php_version exists"
+  
+  if [ ! -f "$php_tar" ]; then
+    rm -rf "$php_dir"
+    php_url="https://www.php.net/distributions/$php_tar"
+    wget -c "$php_url" -O "$php_tar"
+    
   fi
-
+  tar zxvf "$php_tar"
   cd "$php_dir"
   make distclean || true
-
 
 PREFIX="/usr/local/php"
 PHP_ETC="${PREFIX}/etc"
@@ -1765,7 +1926,6 @@ CONFIGURE_OPTS=(
 if [[  "$php_version" =~ ^8\.2\. ]]; then
  CONFIGURE_OPTS+=("--enable-opcache")
 fi
-
 ./configure "${CONFIGURE_OPTS[@]}"
 
   make -j${JOBS}
@@ -1823,7 +1983,7 @@ EOF
 
 php_version="${php_version:-$("$PHP" -r 'echo PHP_VERSION;')}"
 
-if [[ "$php_version" =~ ^8\.5\. ]]; then
+if [[  "$php_version" =~ ^8\.5\. ]]; then
   cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=inotify.so
@@ -1858,6 +2018,7 @@ upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
 default_socket_timeout = 60
+
 
 [Pdo_mysql]
 pdo_mysql.default_socket=/tmp/mariadb.sock
@@ -1897,7 +2058,6 @@ apc.entries_hint=262144
 apc.ttl=0
 apc.gc_ttl=3600
 apc.enable_cli=1
-
 EOF
 
 else
@@ -1981,17 +2141,41 @@ fi
 
   systemctl enable php-fpm
   systemctl start php-fpm
-  cd /root
-  curl -fL --output /tmp/pie.phar https://github.com/php/pie/releases/latest/download/pie.phar \
-  && mv /tmp/pie.phar /usr/local/php/bin/pie \
-  && chmod +x /usr/local/php/bin/pie
 
-pecl channel-update pecl.php.net
+  cd "$WNMPDIR"
 
+  if [ ! -f "pie.phar" ]; then
+   if [[ "$IS_CN" -eq 1 ]]; then
+      wget -c  https://gh-proxy.com/https://github.com/php/pie/releases/latest/download/pie.phar -O "$WNMPDIR"/pie.phar
+   else
+    wget -c  https://github.com/php/pie/releases/latest/download/pie.phar -O "$WNMPDIR"/pie.phar
+   fi
+   
+  fi
+
+  cp "$WNMPDIR"/pie.phar /usr/local/php/bin/pie && chmod +x /usr/local/php/bin/pie
+
+pecl channel-update pecl.php.net  
+rm -rf swoole-src
 if [[ "$php_version" =~ ^8\.5\. ]]; then
-  wget -c https://github.com/swoole/swoole-src/archive/master.tar.gz -O swoole.tar.gz
+  if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
+
+    if [[ "$IS_CN" -eq 1 ]]; then
+      wget -c https://gh-proxy.com/https://github.com/swoole/swoole-src/archive/master.tar.gz -O swoole.tar.gz
+    else
+      wget -c https://github.com/swoole/swoole-src/archive/master.tar.gz -O swoole.tar.gz
+    fi
+  fi 
 else
-  wget -c https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz -O swoole.tar.gz
+  if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
+    if [[ "$IS_CN" -eq 1 ]]; then
+      wget -c https://gh-proxy.com/https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz -O swoole.tar.gz
+    else
+      wget -c https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz -O swoole.tar.gz
+    fi
+    
+  fi
+  
 fi
   
   tar zxvf ./swoole.tar.gz && \
@@ -2001,7 +2185,7 @@ fi
   ./configure --with-php-config=/usr/local/php/bin/php-config \
   --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
   make && make install
-
+  
   if [[ -x /usr/local/php/bin/pie ]]; then
     /usr/local/php/bin/pie install phpredis/phpredis || printf "\n" | pecl install redis
   else
@@ -2019,24 +2203,36 @@ fi
   fi
 
 else
-  echo 'Do not install PHP'
+  echo 'This message has been translated into English.php'
 fi
 
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-    purge_nginx
-    cd /root
+     purge_nginx
+    cd "$WNMPDIR"
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
 
-    curl https://get.acme.sh | sh -s email=1@gmail.com
-    bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
-    if [[ "$IS_LAN" -eq 0 ]]; then
-      echo "$PUBLIC_IP"
-      acme.sh --issue --server letsencrypt -d "$PUBLIC_IP" --certificate-profile shortlived  --standalone --force
+    if [[ "$IS_LAN" -eq 0 ]]; then 
+        wget -O -  https://get.acme.sh | sh -s email=1@gmail.com
+        
+        ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
+
+        bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        if [ ! -s /root/.acme.sh/ca/acme-v02.api.letsencrypt.org/account.key ]; then
+          /root/.acme.sh/acme.sh --register-account -m 1@gmail.com --server letsencrypt
+        fi
+ 
+        echo "$PUBLIC_IP"
+        if acme.sh --issue --server letsencrypt -d "$PUBLIC_IP" --certificate-profile shortlived --standalone; then
+            echo "[This message has been translated into English.] This message has been translated into English."
+        else
+            IS_LAN=1
+            echo "[This message has been translated into English.] This message has been translated into English.，IS_LAN This message has been translated into English. 1"
+        fi
     fi
+
 
     mkdir -p /home/wwwroot/default
     mkdir -p /home/wwwlogs
@@ -2048,15 +2244,31 @@ case "$choosenginx" in
 
     
 
-    
-    rm -rf nginx-1.28.0
-    wget -c https://nginx.org/download/nginx-1.28.0.tar.gz
-    tar zxvf nginx-1.28.0.tar.gz
-    cd nginx-1.28.0
-    git --version >/dev/null || { log "git missing"; exit 1; }
-    git clone --depth=1 https://github.com/arut/nginx-dav-ext-module.git
+    if [ ! -f "$WNMPDIR/nginx-1.28.0.tar.gz" ]; then
+      rm -rf nginx-1.28.0
+      wget -c https://nginx.org/download/nginx-1.28.0.tar.gz -O nginx-1.28.0.tar.gz
+      tar zxvf nginx-1.28.0.tar.gz
+      cd nginx-1.28.0
+      git --version >/dev/null || { log "git missing"; exit 1; }
+      if [[ "$IS_CN" -eq 1 ]]; then
+        git clone --depth=1 https://gh-proxy.com/https://github.com/arut/nginx-dav-ext-module.git
+      else 
+        git clone --depth=1 https://github.com/arut/nginx-dav-ext-module.git
+      fi
+      
+    else
+      tar zxvf nginx-1.28.0.tar.gz
+      cd nginx-1.28.0
+      git --version >/dev/null || { log "git missing"; exit 1; }
+      rm -rf nginx-dav-ext-module
+      if [[ "$IS_CN" -eq 1 ]]; then
+        git clone --depth=1 https://gh-proxy.com/https://github.com/arut/nginx-dav-ext-module.git
+      else 
+        git clone --depth=1 https://github.com/arut/nginx-dav-ext-module.git
+      fi
+    fi
     make clean || true
-
+   
     ./configure \
       --prefix=/usr/local/nginx \
       --user=www \
@@ -2116,9 +2328,11 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
+    mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
+
 
 cat <<'EOF' >  /usr/local/nginx/download.conf
+
 types { }
 default_type application/octet-stream;
 autoindex on;            
@@ -2146,7 +2360,7 @@ EOF
 
 cat <<'EOF' >  /usr/local/nginx/html/403.html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
@@ -2202,9 +2416,9 @@ cat <<'EOF' >  /usr/local/nginx/html/403.html
 <body>
   <div class="box">
     <h1>403</h1>
-    <p>Sorry, you don't have permission to access this page.</p>
+    <p>This message has been translated into English.，This message has been translated into English.。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">This server was built using the one-click package from wnmp.org.</p>
+    <p style="font-size:0.9rem;opacity:0.7;">This message has been translated into English.wnmp.orgThis message has been translated into English.。</p>
   </div>
 </body>
 </html>
@@ -2213,7 +2427,7 @@ EOF
 
 cat <<'EOF' >  /usr/local/nginx/html/404.html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
@@ -2269,18 +2483,16 @@ cat <<'EOF' >  /usr/local/nginx/html/404.html
 <body>
   <div class="box">
     <h1>404</h1>
-    <p>The requested resource could not be found on this server.</p>
+    <p>This message has been translated into English.。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">This server was built using the one-click package from wnmp.org.</p>
+    <p style="font-size:0.9rem;opacity:0.7;">This message has been translated into English.wnmp.orgThis message has been translated into English.。</p>
   </div>
 </body>
 </html>
-
 EOF
 
 
-
-cat <<'EOF' >  /usr/local/nginx/enable-php.conf
+    cat <<'EOF' >  /usr/local/nginx/enable-php.conf
 location ~ [^/]\.php(/|$)
 {
     try_files $uri =404;
@@ -2290,7 +2502,7 @@ location ~ [^/]\.php(/|$)
 }
 EOF
 
-cat <<'EOF' >  /usr/local/nginx/fastcgi.conf
+    cat <<'EOF' >  /usr/local/nginx/fastcgi.conf
 fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
 fastcgi_param  QUERY_STRING       $query_string;
 fastcgi_param  REQUEST_METHOD     $request_method;
@@ -2606,19 +2818,19 @@ EOF
 fi
 
     if [[ "$IS_LAN" -eq 0 ]]; then  
-      acme.sh --install-cert -d "$PUBLIC_IP" --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem --ca-file  /usr/local/nginx/ssl/default/ca.pem
+      acme.sh --install-cert -d "$PUBLIC_IP" --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem --ca-file  /usr/local/nginx/ssl/default/ca.pem || true
     fi
 
     systemctl daemon-reload
     systemctl enable nginx
     systemctl start nginx
-    
+
     ;;
   n|N|no|NO|No)
-    echo "You selected ‘No’, skipping the nginx installation..." 
+    echo "This message has been translated into English.'This message has been translated into English.'，This message has been translated into English.nginxThis message has been translated into English...."
     ;;
   *)
-    echo "Invalid input, default exit..." 
+    echo "This message has been translated into English.，This message has been translated into English...."
     exit 1
     ;;
 esac
@@ -2626,7 +2838,7 @@ esac
 if [ "$mariadb_version" != "0" ]; then
   purge_mariadb
 
-  cd /root
+  cd "$WNMPDIR"
 
   ensure_group mariadb
   ensure_user  mariadb mariadb
@@ -2635,11 +2847,18 @@ if [ "$mariadb_version" != "0" ]; then
   chown -R mariadb:mariadb /home/mariadb
 
 
-  rm -rf "mariadb-$mariadb_version"
-  wget -c "https://archive.mariadb.org/mariadb-$mariadb_version/source/mariadb-$mariadb_version.tar.gz"
+  if [ ! -f "$WNMPDIR/mariadb-$mariadb_version.tar.gz" ]; then
+    rm -rf "mariadb-$mariadb_version"
+    wget -c "https://archive.mariadb.org/mariadb-$mariadb_version/source/mariadb-$mariadb_version.tar.gz" -O "mariadb-$mariadb_version.tar.gz"
+    
+  fi
+
   tar zxvf "mariadb-$mariadb_version.tar.gz"
 
   cd "mariadb-$mariadb_version"
+ 
+  rm -rf build
+  
   mkdir build && cd build
 
   export LDFLAGS="-Wl,--as-needed -Wl,--no-keep-memory"
@@ -2785,34 +3004,44 @@ EOF
   cd ..
   set +H
   /usr/local/mariadb/bin/mysql -uroot --protocol=SOCKET <<SQL
-
+-- This message has been translated into English. root@localhost This message has been translated into English.
 ALTER USER 'root'@'localhost'
   IDENTIFIED VIA unix_socket
   OR mysql_native_password USING PASSWORD('${MYSQL_PASS}');
 
+-- This message has been translated into English.
 DROP USER IF EXISTS ''@'localhost';
 DROP USER IF EXISTS ''@'%';
 
+-- This message has been translated into English. root This message has been translated into English.
 DROP USER IF EXISTS 'root'@'%';
 DROP USER IF EXISTS 'root'@'127.0.0.1';
 DROP USER IF EXISTS 'root'@'::1';
 
+-- This message has been translated into English. test This message has been translated into English.
 DROP DATABASE IF EXISTS test;
 
 FLUSH PRIVILEGES;
 SQL
-  echo -e "\n✅ MariaDB initialization complete. Root password:：\033[1;32m${MYSQL_PASS}\033[0m"
-  cd /home/wwwroot/default
+  echo -e "\n✅ MariaDB This message has been translated into English.Completed，root This message has been translated into English.：\033[1;32m${MYSQL_PASS}\033[0m"
+
+  cd "$WNMPDIR"
+  
+
+
+    if [ ! -f "$WNMPDIR/phpmyadmin.zip" ]; then
+      wget -c https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip -O phpmyadmin.zip
+    fi
+    cd /home/wwwroot/default
     rm -rf phpmyadmin phpmyadmin.zip
-    
-    wget -c https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip -O phpmyadmin.zip
+    cp "$WNMPDIR"/phpmyadmin.zip /home/wwwroot/default
     apt install -y unzip
     unzip phpmyadmin.zip -d ./
     mv phpMyAdmin* phpmyadmin
     rm -f phpmyadmin.zip
     chown -R www:www /home/wwwroot
   
-  cd /root
+  cd "$WNMPDIR"
 
 apt remove --purge -y 'groonga*' 'libgroonga*'
 apt -f install -y
@@ -2834,8 +3063,7 @@ rm -rf /usr/local/bin/mroonga \
 rm -f /etc/ld.so.conf.d/groonga.conf
 rm -f /etc/ld.so.conf.d/mroonga.conf
 ldconfig
-rm -rf /root/groonga
-rm -rf /root/mroonga
+
 apt-get install -y \
   build-essential cmake ninja-build pkg-config \
   liblz4-dev libzstd-dev libxxhash-dev \
@@ -2843,11 +3071,15 @@ apt-get install -y \
   libmecab-dev mecab-ipadic-utf8 \
   libssl-dev zlib1g-dev
 
+   cd "$WNMPDIR"
 
-
- wget https://packages.groonga.org/source/groonga/groonga-latest.tar.gz -O groonga.tar.gz
-  mkdir -p groonga
+  if [ ! -f "$WNMPDIR/groonga.tar.gz" ]; then
+    rm -rf groonga
+    wget -c https://packages.groonga.org/source/groonga/groonga-latest.tar.gz -O groonga.tar.gz
+    mkdir -p groonga  
+  fi
   tar -zxvf groonga.tar.gz --strip-components=1 -C groonga
+ 
 cd groonga
 
 cmake -S . -B build -G Ninja \
@@ -2863,10 +3095,17 @@ ldconfig
 
 groonga --version
 
-apt install -y   groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-dev groonga-normalizer-mysql
+cd "$WNMPDIR"
 
-  wget https://packages.groonga.org/source/mroonga/mroonga-latest.tar.gz -O mroonga.tar.gz
-  mkdir -p mroonga
+apt install -y   groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-dev groonga-normalizer-mysql
+  
+  if [ ! -f "$WNMPDIR/mroonga.tar.gz" ]; then
+    rm -rf mroonga
+    wget -c https://packages.groonga.org/source/mroonga/mroonga-latest.tar.gz -O mroonga.tar.gz
+    mkdir -p mroonga
+    
+  fi
+  
   tar -zxvf mroonga.tar.gz --strip-components=1 -C mroonga
   cd mroonga
   mariadb_version=$(/usr/local/mariadb/bin/mysql_config --version)
@@ -2878,15 +3117,15 @@ apt install -y   groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-de
       -DMRN_DEFAULT_TOKENIZER=TokenBigramSplitSymbolAlphaDigit \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/usr/local/mroonga \
-      -DMYSQL_BUILD_DIR=/root/mariadb-$mariadb_version/build \
+      -DMYSQL_BUILD_DIR="$WNMPDIR"/mariadb-$mariadb_version/build \
       -DMYSQL_CONFIG=/usr/local/mariadb/bin/mysql_config \
-      -DMYSQL_SOURCE_DIR=/root/mariadb-$mariadb_version
+      -DMYSQL_SOURCE_DIR="$WNMPDIR"/mariadb-$mariadb_version
   cmake --build build -j"$(nproc)"
   cmake --install build
 
   /usr/local/mariadb/bin/mysql -u root < /usr/local/mroonga/share/mroonga/install.sql
 
-  cd /root
+ cd "$WNMPDIR"
 
  
   rm -f /etc/apt/sources.list.d/apache-arrow*.list /etc/apt/sources.list.d/apache-arrow*.sources
@@ -2898,7 +3137,7 @@ apt install -y   groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-de
   apt-get update
 
 else
-  echo "Do not install MariaDB"
+  echo "This message has been translated into English.mariadb"
 fi
 apt --fix-broken install -y
 apt autoremove -y
@@ -2906,7 +3145,7 @@ apt autoremove -y
 
 auto_optimize_services() {
   echo "=================================================="
-  echo " Automatic Optimization of WNMP (WebDav / Nginx / PHP-FPM / MariaDB)" 
+  echo "        This message has been translated into English. WNMP（WebDav / Nginx / PHP-FPM / MariaDB）"
   echo "=================================================="
 
   CPU_CORES=$(nproc)
@@ -2935,7 +3174,7 @@ auto_optimize_services() {
     sed -i "s/pm.max_spare_servers =.*/pm.max_spare_servers = ${PM_MAX}/" "$PHP_FPM_CONF"
     echo "[PHP-FPM] max_children=${PM_MAX_CHILDREN} start=${PM_START} min=${PM_MIN} max=${PM_MAX}"
   else
-    echo "[PHP-FPM] No configuration detected, skipping." 
+    echo "[PHP-FPM] This message has been translated into English.，This message has been translated into English."
   fi
 
 
@@ -2959,23 +3198,22 @@ auto_optimize_services() {
     fi
     echo "[MariaDB] innodb_buffer_pool_size=${INNODB_BUFFER}"
   else
-    echo "[MariaDB] No configuration detected, skipping." 
+    echo "[MariaDB] This message has been translated into English.，This message has been translated into English."
   fi
 
-  systemctl restart nginx 2>/dev/null && echo "[OK] nginx Restart Succeeded" || echo "[WARN] nginx Restart Failed or not installed" 
-  systemctl restart php-fpm 2>/dev/null && echo "[OK] php-fpm Restart Succeeded" || echo "[WARN] php-fpm Restart Failed or not installed" 
-  systemctl restart mariadb 2>/dev/null && echo "[OK] mariadb Restart Succeeded" || echo "[WARN] mariadb Restart Failed or not installed"
+  systemctl restart nginx 2>/dev/null && echo "[OK] nginx This message has been translated into English." || echo "[WARN] nginx This message has been translated into English."
+  systemctl restart php-fpm 2>/dev/null && echo "[OK] php-fpm This message has been translated into English." || echo "[WARN] php-fpm This message has been translated into English."
+  systemctl restart mariadb 2>/dev/null && echo "[OK] mariadb This message has been translated into English." || echo "[WARN] mariadb This message has been translated into English."
 
-  echo "================= Optimization Results Report =================" 
+  echo "================= This message has been translated into English. This message has been translated into English. This message has been translated into English. This message has been translated into English. This message has been translated into English. This message has been translated into English. ================="
   
   [ -f "$PHP_FPM_CONF" ] && { echo "[PHP-FPM]"; grep -E "pm.max_children|pm.start_servers|pm.min_spare_servers|pm.max_spare_servers|request_slowlog_timeout" "$PHP_FPM_CONF" | sed 's/^[ \t]*//'; echo; }
   [ -f "$MYSQL_CONF" ] && { echo "[MariaDB]"; grep -E "innodb_buffer_pool_size|max_connections|tmp_table_size|max_heap_table_size" "$MYSQL_CONF" | sed 's/^[ \t]*//'; echo; }
-  echo "================= Optimization Complete =================" 
+  echo "================= This message has been translated into English. This message has been translated into English. This message has been translated into English. This message has been translated into English. ================="
 }
 
 
 
 auto_optimize_services
-
 
 wnmp_kernel_tune
