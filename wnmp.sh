@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.17
+# Version: 1.18
 
 set -euo pipefail
 
@@ -53,7 +53,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.17"
+green  " [init] Version: 1.18"
 green  "============================================================"
 echo
 sleep 1
@@ -309,31 +309,45 @@ is_lan
 
 
 
-
-
+service_exists() {
+  local svc="$1"
+  systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "${svc}.service"
+}
 
 
 status() {
 
-  systemctl --no-pager status nginx
-  systemctl --no-pager status php-fpm
-  systemctl --no-pager status mariadb
+  for svc in nginx php-fpm mariadb; do
+    if service_exists "$svc"; then
+      echo "▶ ${svc} status:"
+      systemctl --no-pager status "$svc"
+      echo
+    else
+      echo "⚠️  ${svc} service not found, skipped."
+    fi
+  done
 
   exit 0
 }
 restart() {
-  systemctl restart nginx
-  systemctl --no-pager status nginx
 
-  systemctl restart php-fpm
-  systemctl --no-pager status php-fpm
-
-  systemctl restart mariadb
-  systemctl --no-pager status mariadb
+  for svc in nginx php-fpm mariadb; do
+    if service_exists "$svc"; then
+      echo "▶ restarting ${svc}..."
+      systemctl restart "$svc"
+      systemctl --no-pager status "$svc"
+      echo
+    else
+      echo "⚠️  ${svc} service not found, skipped."
+    fi
+  done
 
   echo "Services restarted"
   exit 0
 }
+
+
+
 
 webdav() {
   local domain user pass passwd_file ans
