@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.16
+# Version: 1.17
 
 set -euo pipefail
 
@@ -53,7 +53,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.16"
+green  " [init] Version: 1.17"
 green  "============================================================"
 echo
 sleep 1
@@ -1702,7 +1702,7 @@ if [ "$php_version" != "0" ]; then
     wget -c "$php_url"
     tar zxvf "php-$php_version.tar.gz"
   else
-    log "php-$php_version 已exists"
+    log "php-$php_version exists"
   fi
 
   cd "$php_dir"
@@ -1987,10 +1987,23 @@ fi
   ./configure --with-php-config=/usr/local/php/bin/php-config \
   --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
   make && make install
-  
-  pie install phpredis/phpredis  || echo -e "${RED}Warning:redis Installation Failed${NC}" 
-  pie install arnaud-lb/inotify || echo -e "${RED}Warning:inotify Installation Failed${NC}"
-  pie install apcu/apcu || echo -e "${RED}Warning:apcu Installation Failed${NC}"
+
+  if [[ -x /usr/local/php/bin/pie ]]; then
+    /usr/local/php/bin/pie install phpredis/phpredis || printf "\n" | pecl install redis
+  else
+    printf "\n" | pecl install redis
+  fi
+  if [[ -x /usr/local/php/bin/pie ]]; then
+    /usr/local/php/bin/pie install arnaud-lb/inotify || printf "\n" | pecl install inotify
+  else
+    printf "\n" | pecl install inotify
+  fi
+  if [[ -x /usr/local/php/bin/pie ]]; then
+    /usr/local/php/bin/pie install apcu/apcu || printf "\n" | pecl install apcu
+  else
+    printf "\n" | pecl install apcu
+  fi
+
 else
   echo 'Do not install PHP'
 fi
