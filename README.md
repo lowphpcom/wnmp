@@ -35,6 +35,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.16 The official PHP PECL extension installer is no longer maintained. C-based PHP extensions are now installed using the pie extension installer.The complete list of available pie extensions can be found at:https://packagist.org/extensions
+
 v1.15 Removed the default function. Let's Encrypt IP certificates are automatically issued by default, with NGINX BASIC AUTH enabled for additional security. The database is accessible directly at https://[ip]/phpmyadmin.
 
 v1.13 introduces further kernel parameter tuning to enhance system concurrency.
