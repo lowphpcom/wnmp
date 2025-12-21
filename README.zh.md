@@ -31,6 +31,9 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 
 ## 更新记录
+
+v1.16 PHP官方已停止维护pecl扩展安装器，改用pie扩展安装器安装C语言扩展。pie完整扩展列表：https://packagist.org/extensions
+
 v1.15 取消default函数，已默认申请Let's Encrypt IP证书保护，并生成NGINX BASIC AUTH 加固保护；可直接https://[ip]/phpmyadmin 访问数据库
 
 v1.13 进一步优化内核参数提高系统并发能力
