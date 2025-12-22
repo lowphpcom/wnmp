@@ -185,7 +185,7 @@ Press Win+R to open the Run dialog, type `cmd`. Press Shift+Ctrl+Enter to open t
 
 `wsl -l -o` # to check if remote system lists are accessible. If successful, WSL is functioning properly.
 
-`wsl --install debian` # (Begin installing the Debian 13 subsystem. The first command execution may require a system restart or prompt for missing CPU virtualization support. Follow the on-screen instructions.)
+`wsl --install debian --web-download` # (Begin installing the Debian 13 subsystem. The first command execution may require a system restart or prompt for missing CPU virtualization support. Follow the on-screen instructions.)
 
 After successful installation, you will be prompted to configure a standard account and password. Once configured, simply type: exit to exit the subsystem.
 
@@ -196,7 +196,7 @@ cd /root
 apt update && apt install -y curl
 curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
-bash wnmp.sh wslinit
+bash wnmp.sh
 ```
 
 In the taskbar, navigate to and open:
