@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.26
+# Version: 1.28
 
 set -euo pipefail
 
@@ -20,6 +20,12 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "[-] Please run as root"
   exit 1
 fi
+
+SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+TARGET_PATH="/usr/local/bin/wnmp"
+
+[ ! -f "${TARGET_PATH}" ] || [ "$(readlink -f "${TARGET_PATH}")" != "${SCRIPT_PATH}" ] && \
+cp "${SCRIPT_PATH}" "${TARGET_PATH}" && chmod +x "${TARGET_PATH}"
 
 LOGFILE="/root/logwnmp.log"
 
@@ -53,7 +59,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.26"
+green  " [init] Version: 1.28"
 green  "============================================================"
 echo
 sleep 1
@@ -677,19 +683,87 @@ EOF
     return 0
 }
 
-
 enable_proxy() {
-
   local PROXY_USER="wnmp"
   local PROXY_PASS="passwdwnmp"
-  local PROXY_HOST="51.178.43.90"
   local PROXY_PORT="3128"
-  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-  export HTTP_PROXY="http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
-  export HTTPS_PROXY="http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
+
+  local PROXIES=(
+    "51.178.43.90"
+    "204.152.198.192"
+  )
+
+  local TIMEOUT=5          
+  local PING_COUNT=3       
+  local PING_INTERVAL=0.2  
+
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY
+
+  local proxy_results=()
+  local available_proxies=()
+
+  echo "=== Device ↔ Proxy Server Speed Test Results (Ping Average Latency) ==="
+
+  for host in "${PROXIES[@]}"; do
+
+    local ping_output
+    ping_output=$(ping -c "$PING_COUNT" -W "$TIMEOUT" -i "$PING_INTERVAL" -q "$host" 2>/dev/null)
+    
+
+    local avg_ms
+
+    avg_ms=$(echo "$ping_output" | grep -o 'rtt min/avg/max/mdev = [0-9.]*\/[0-9.]*\/[0-9.]*\/[0-9.]* ms' | awk -F'[ /=]' '{print $8}')
+
+    if [[ -z "$avg_ms" ]]; then
+      avg_ms=$(echo "$ping_output" | grep -o 'round-trip min/avg/max/stddev = [0-9.]*\/[0-9.]*\/[0-9.]*\/[0-9.]* ms' | awk -F'[ /=]' '{print $9}')
+    fi
+
+
+    if [[ -z "$avg_ms" || "$avg_ms" == "0.000" || "$avg_ms" == "0" ]]; then
+      echo "[${#available_proxies[@]}+1] ${host}:${PROXY_PORT} -> Unavailable (ping timed out/no response)"
+      continue
+    fi
+
+
+    local ms
+    ms=$(awk -v avg="$avg_ms" 'BEGIN { printf "%d", avg + 0.5 }')
+
+    available_proxies+=("$host")
+    proxy_results+=("$ms")
+    
+    echo "[${#available_proxies[@]}] ${host}:${PROXY_PORT} -> ${ms} ms (Average delay)"
+  done
+
+  if [[ ${#available_proxies[@]} -eq 0 ]]; then
+    echo "[proxy][ERROR] No available proxies found. Proxy settings have been skipped."
+    return 1
+  fi
+
+
+  echo -e "\nPlease select the proxy to use (enter the corresponding number):"
+  local selection
+  read -r selection
+
+
+  if ! [[ "$selection" =~ ^[0-9]+$ ]] || 
+     [[ "$selection" -lt 1 ]] || 
+     [[ "$selection" -gt ${#available_proxies[@]} ]]; then
+    echo "[proxy][ERROR] 无效的选择（请输入1-${#available_proxies[@]}之间的数字），已跳过代理设置"
+    return 1
+  fi
+
+
+  local index=$((selection - 1))
+  local selected_proxy="${available_proxies[$index]}"
+  local selected_time="${proxy_results[$index]}"
+
+  export HTTP_PROXY="http://${PROXY_USER}:${PROXY_PASS}@${selected_proxy}:${PROXY_PORT}"
+  export HTTPS_PROXY="http://${PROXY_USER}:${PROXY_PASS}@${selected_proxy}:${PROXY_PORT}"
   export NO_PROXY="127.0.0.1,localhost,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-  echo "[proxy] Global proxy enabled（Squid + auth）"
+  
+  echo "[proxy][OK] Proxy selected:${selected_proxy}:${PROXY_PORT} (Device ↔ Agent Average Latency:${selected_time} ms)"
 }
+
 
 disable_proxy() {
   unset HTTP_PROXY HTTPS_PROXY NO_PROXY
@@ -3478,7 +3552,7 @@ auto_optimize_services() {
   echo "================= Optimization Complete ================="
 }
 
-
+cp "${SCRIPT_PATH}" /usr/local/bin/wnmp && chmod +x /usr/local/bin/wnmp
 
 auto_optimize_services
 
