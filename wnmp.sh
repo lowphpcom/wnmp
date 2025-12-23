@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.24
+# Version: 1.25
 
 set -euo pipefail
 
@@ -53,7 +53,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.24"
+green  " [init] Version: 1.25"
 green  "============================================================"
 echo
 sleep 1
@@ -1413,7 +1413,7 @@ remariadb(){
 
 
 
-KERNEL_TUNE_ONLY=0
+
 
 
 
@@ -2051,14 +2051,14 @@ UNIT
 
 
 
-if [ "$KERNEL_TUNE_ONLY" -eq 1 ]; then
+tool(){
   echo "[setup] kernel-only mode ON"
   
   wnmp_kernel_tune
  
   echo -e "${GREEN}Only kernel/network tuning has been completed.${NC}"
   exit 0
-fi
+}
 
 
 
@@ -2086,7 +2086,7 @@ ensure_user() {
 
 for arg in "$@"; do
    case "${arg}" in
-     tool) KERNEL_TUNE_ONLY=1 ;;
+     tool) tool; exit 0 ;;
      vhost) vhost; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
