@@ -5,9 +5,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
 ![Build](https://img.shields.io/badge/Installer-一键安装-orange.svg)
 
-有用户联系作者，pie或pecl 不能安装例如：fileinfo,sodium,soap扩展。在此声明：请先在 [https://packagist.org/extensions](https://packagist.org/extensions) 搜索是否存在你需要安装的扩展，如果官方列表已不存在，无法安装成功！
 
-wnmp一键包不会兼容官方已停止维护的软件或扩展，此类扩展通常因存在已知安全漏洞而被移除。如果你的源码需要这些扩展，请自行查找.so已编译的扩展二进制文件部署。
 
 ## wnmp.org一键web环境安装包，已得到mroonga搜索引擎官方认可，已在官方页面得到友情链接。
 https://mroonga.org/users/
