@@ -34,7 +34,7 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 v1.21 优化中国大陆网络下载软件安装包网络不稳定掉线问题
 
-v1.20 所有软件下载到/root/wnmp目录，覆盖安装检测存在软件压缩包直接解压安装，不再重新下载
+v1.20 所有软件下载到/root/sourcewnmp目录，覆盖安装检测存在软件压缩包直接解压安装，不再重新下载
 
 v1.16 PHP官方已停止维护pecl扩展安装器，改用pie扩展安装器安装C语言扩展。pie完整扩展列表：https://packagist.org/extensions
 
