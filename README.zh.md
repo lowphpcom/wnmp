@@ -119,7 +119,7 @@ bash wnmp.sh
 | SSH 密钥登录 | `bash wnmp.sh sshkey` |
 | 添加 WebDAV 账号 | `bash wnmp.sh webdav` |
 | 创建虚拟主机（含证书） | `bash wnmp.sh vhost` |
-| 仅执行内核/网络调优 | `bash wnmp.sh tool` |
+| 仅执行内核/网络调优 | `bash wnmp.sh tool` 验证指令： ulimit -n && ulimit -u && sysctl --system |
 | 重启所有服务 | `bash wnmp.sh restart` |
 | 清理 | `bash wnmp.sh remove` / `bash wnmp.sh renginx` / `bash wnmp.sh rephp` / `bash wnmp.sh remariadb` |
 ---
