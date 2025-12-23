@@ -21,11 +21,11 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 TARGET_PATH="/usr/local/bin/wnmp"
 
-[ ! -f "${TARGET_PATH}" ] || [ "$(readlink -f "${TARGET_PATH}")" != "${SCRIPT_PATH}" ] && \
-cp "${SCRIPT_PATH}" "${TARGET_PATH}" && chmod +x "${TARGET_PATH}"
+[ -e "${TARGET_PATH}" ] && [ "$(readlink -f "${TARGET_PATH}")" != "${SCRIPT_PATH}" ] && rm -f "${TARGET_PATH}"
+[ ! -e "${TARGET_PATH}" ] && cp "${SCRIPT_PATH}" "${TARGET_PATH}" && chmod +x "${TARGET_PATH}"
 
 LOGFILE="/root/logwnmp.log"
 
