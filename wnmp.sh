@@ -246,7 +246,7 @@ fixsshd() {
     echo "=========================================="
     return 1
   fi
-  echo "[OK] sshd 配置检测通过。"
+  echo "[OK] sshd Configuration check passed."
 
 
   systemctl daemon-reload
@@ -748,7 +748,7 @@ enable_proxy() {
   if ! [[ "$selection" =~ ^[0-9]+$ ]] || 
      [[ "$selection" -lt 1 ]] || 
      [[ "$selection" -gt ${#available_proxies[@]} ]]; then
-    echo "[proxy][ERROR] 无效的选择（请输入1-${#available_proxies[@]}之间的数字），已跳过代理设置"
+    echo "[proxy][ERROR] Invalid selection (please enter a number between 1 and ${#available_proxies[@]}), proxy settings skipped"
     return 1
   fi
 
