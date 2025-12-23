@@ -7,6 +7,11 @@
 ![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
 ![Build](https://img.shields.io/badge/Installer-One%20Command-orange.svg)
 
+
+Some users have contacted the author reporting that pie or pecl cannot install extensions such as fileinfo, sodium, or soap. Hereby clarified: please first search on [https://packagist.org/extensions](https://packagist.org/extensions) to check whether the extension you need still exists. If it has been removed from the official list, it cannot be installed successfully.
+
+The WNMP one-click package will NOT be compatible with software or extensions that are officially no longer maintained. Such extensions are typically removed due to known security vulnerabilities. If your source code still depends on these extensions, please locate and deploy pre-compiled .so binary extension files on your own.
+
 ## The wnmp.org one-click web environment installation package has been officially recognized by the Mroonga search engine and has been listed with a backlink on the official Mroonga users page.
 https://mroonga.org/users/
 
