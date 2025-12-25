@@ -31,6 +31,7 @@ TARGET_PATH="/usr/local/bin/wnmp"
 [ -e "${TARGET_PATH}" ] && [ "$(readlink -f "${TARGET_PATH}")" != "${SCRIPT_PATH}" ] && rm -f "${TARGET_PATH}"
 [ ! -e "${TARGET_PATH}" ] && cp "${SCRIPT_PATH}" "${TARGET_PATH}" && chmod +x "${TARGET_PATH}"
 
+
 LOGFILE="/root/logwnmp.log"
 
 if [[ -f "$LOGFILE" ]]; then
@@ -87,7 +88,6 @@ Usage:
 USAGE
 }
 
-
 service_exists() {
   local svc="$1"
   systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "${svc}.service"
@@ -127,184 +127,8 @@ echo "[setup] args: $*"
 
 
 
-download_with_mirrors() {
-  local url="$1"
-  local out="$2"
-  local label="${3:-download}"
-  local ua="Mozilla/5.0"
-  local tmp="${out}.part"
-
-  local MAX_ROUNDS=3
-  local ROUND_SLEEP=5
-
-  local LOCAL_SOCKS_BIND="127.0.0.1"
-  local LOCAL_SOCKS_PORT="32000"
-
-  mkdir -p "$(dirname "$out")" 2>/dev/null || true
 
 
-  _ensure_socks_ready() {
-    
-    local retry=3
-    while (( retry > 0 )); do
-      if proxy_healthcheck 2>/dev/null; then
-        return 0
-      fi
-      
-      echo "[$label][INFO] Attempt to start an SSH tunnel..."
-      enable_proxy >/dev/null 2>&1 || true
-      sleep 5 
-      (( retry-- ))
-    done
-    
-    proxy_healthcheck 2>/dev/null
-  }
-
- 
-  _curl_no_proxy_opts() {
-   
-    echo "-x" "" "--noproxy" "*"
-  }
-
-  
-  local USE_SOCKS=0
-
-  _curl_proxy_opts() {
-    if (( USE_SOCKS == 1 )); then
-     
-      echo "--socks5-hostname" "${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
-    else
-      echo
-    fi
-  }
-
-  _wget_proxy_env() {
-    if (( USE_SOCKS == 1 )); then
-      
-      export http_proxy="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
-      export https_proxy="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
-      export HTTP_PROXY="$http_proxy"
-      export HTTPS_PROXY="$https_proxy"
-      export ALL_PROXY="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
-      export all_proxy="$ALL_PROXY"
-      export WGETRC="/dev/null"
-    else
-      unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy WGETRC
-    fi
-  }
-
-  _aria2_proxy_opts() {
-    if (( USE_SOCKS == 1 )); then
-      echo "--all-proxy=socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}" \
-           "--all-proxy-connect-timeout=10" "--all-proxy-timeout=60"
-    else
-      echo
-    fi
-  }
-
-  local final_url="$url"
-  if command -v curl >/dev/null 2>&1; then
-  
-    final_url="$(curl -A "$ua" -fsSLI $(_curl_no_proxy_opts) \
-      --connect-timeout 10 --max-time 30 \
-      -o /dev/null -w '%{url_effective}' "$url" 2>/dev/null || true)"
-  else
-    local loc
-    loc="$(wget -S --spider -O /dev/null \
-      --timeout=10 --tries=2 "$url" 2>&1 | \
-      awk -F': ' '/^  Location: /{print $2}' | tail -n1 | tr -d '\r' || true)"
-    [[ -n "$loc" ]] && final_url="$loc"
-  fi
-  [[ -z "$final_url" ]] && final_url="$url"
-
-  local candidates=()
-  candidates+=("$final_url" "$url")
-
-  # uniq
-  local uniq=() x y seen
-  for x in "${candidates[@]}"; do
-    [[ -z "$x" ]] && continue
-    seen=0
-    for y in "${uniq[@]}"; do
-      [[ "$y" == "$x" ]] && seen=1 && break
-    done
-    [[ $seen -eq 0 ]] && uniq+=("$x")
-  done
-  candidates=("${uniq[@]}")
-
-  local round try_url ok
-  for ((round=1; round<=MAX_ROUNDS; round++)); do
-    echo "[$label] ===== Round $round / $MAX_ROUNDS ====="
-    rm -f "$tmp"
-
-   
-    if [[ "${IS_CN:-0}" -eq 0 ]]; then
-      
-      local p="${ALL_PROXY:-${all_proxy:-${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}}}"
-      if [[ "$p" =~ ^socks5h?:// ]]; then
-        USE_SOCKS=1
-       
-      else
-        USE_SOCKS=0
-       
-      fi
-    else
-    
-      if _ensure_socks_ready; then
-        USE_SOCKS=1
-        echo "[$label][INFO] SSH tunneling is available; download using a SOCKS5 proxy."
-      else
-        USE_SOCKS=0
-        echo "[$label][WARN] SSH tunneling is unavailable; please attempt a direct connection for download."
-      fi
-    fi
-
-    for try_url in "${candidates[@]}"; do
-      echo "[$label] trying: $try_url (socks=$USE_SOCKS)"
-
-      if command -v aria2c >/dev/null 2>&1; then
-       
-        aria2c -c -x 8 -s 8 -k 1M \
-          --connect-timeout=10 --timeout=60 --retry-wait=1 --max-tries=5 \
-          --allow-overwrite=true \
-          --user-agent="$ua" \
-          $(_aria2_proxy_opts) \
-          -o "$(basename "$tmp")" -d "$(dirname "$tmp")" \
-          "$try_url" && ok=1 || ok=0
-
-      elif command -v curl >/dev/null 2>&1; then
-        
-        curl -A "$ua" -fL --http1.1 \
-          $(_curl_proxy_opts) \
-          --connect-timeout 10 --max-time 900 \
-          --retry 5 --retry-delay 1 --retry-connrefused \
-          -C - -o "$tmp" "$try_url" && ok=1 || ok=0
-
-      else
-       
-        _wget_proxy_env
-        wget -c --timeout=10 --tries=5 --waitretry=1 \
-          --header="User-Agent: $ua" \
-          -O "$tmp" "$try_url" && ok=1 || ok=0
-      fi
-
-      if [[ $ok -eq 1 && -s "$tmp" ]]; then
-        mv -f "$tmp" "$out"
-        echo "[$label][OK] -> $out"
-        return 0
-      fi
-    done
-
-    if (( round < MAX_ROUNDS )); then
-      echo "[$label][WARN] round $round failed, retry after ${ROUND_SLEEP}s..."
-      sleep "$ROUND_SLEEP"
-    fi
-  done
-
-  rm -f "$tmp"
-  echo "[$label][ERROR] download failed after $MAX_ROUNDS rounds (mirrors exhausted)."
-  return 1
-}
 
 fixsshd() {
   echo "=========================================="
@@ -630,13 +454,236 @@ detect_cn_ip() {
 
   return 0
 }
+download_with_mirrors() {
+  local url="$1"
+  local out="$2"
+  local label="${3:-download}"
+  local ua="Mozilla/5.0"
+  local tmp="${out}.part"
+
+  local MAX_ROUNDS=3
+  local ROUND_SLEEP=5
+
+  
+  local LOCAL_SOCKS_BIND="127.0.0.1"
+  local LOCAL_SOCKS_PORT="32000"
+
+  mkdir -p "$(dirname "$out")" 2>/dev/null || true
 
 
+
+  _ensure_socks_ready() {
+    local retry=3
+    while (( retry > 0 )); do
+      if proxy_healthcheck 2>/dev/null; then
+        return 0
+      fi
+
+      echo "[$label][INFO] Attempt to start an SSH tunnel..."
+      enable_proxy >/dev/null 2>&1 || true
+      sleep 5
+      (( retry-- ))
+    done
+
+    proxy_healthcheck 2>/dev/null
+  }
+
+  
+  _curl_force_direct_opts() {
+    
+    echo "--proxy" "" "--noproxy" "*"
+  }
+
+
+  _curl_proxy_opts() {
+    if (( USE_SOCKS == 1 )); then
+      echo "--socks5-hostname" "${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
+    else
+      echo
+    fi
+  }
+
+
+  _wget_proxy_env_on() {
+    export http_proxy="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
+    export https_proxy="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
+    export HTTP_PROXY="$http_proxy"
+    export HTTPS_PROXY="$https_proxy"
+    export ALL_PROXY="socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}"
+    export all_proxy="$ALL_PROXY"
+    export WGETRC="/dev/null"
+  }
+  _wget_proxy_env_off() {
+    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy WGETRC
+  }
+
+
+  _aria2_proxy_opts() {
+    if (( USE_SOCKS == 1 )); then
+      printf '%s ' \
+        "--all-proxy=socks5h://${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}" \
+        "--all-proxy-connect-timeout=10" \
+        "--all-proxy-timeout=60"
+    fi
+  }
+
+
+
+  local final_url="$url"
+
+if command -v curl >/dev/null 2>&1; then
+
+  final_url="$(
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      curl -A "$ua" -fsSLI \
+        --proxy "" --noproxy "*" \
+        --connect-timeout 10 --max-time 30 \
+        -o /dev/null -w '%{url_effective}' "$url" 2>/dev/null \
+    || true
+  )"
+
+elif command -v wget >/dev/null 2>&1; then
+  local loc=""
+
+  loc="$(
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      wget -S --spider -O /dev/null \
+        --timeout=10 --tries=2 \
+        --no-proxy \
+        "$url" 2>&1 | \
+      awk -F': ' '/^  Location: /{print $2}' | tail -n1 | tr -d '\r' \
+    || true
+  )"
+  [[ -n "$loc" ]] && final_url="$loc"
+fi
+
+[[ -z "$final_url" ]] && final_url="$url"
+
+ 
+  local candidates=()
+  candidates+=("$final_url" "$url")
+
+  # uniq
+  local uniq=() x y seen
+  for x in "${candidates[@]}"; do
+    [[ -z "$x" ]] && continue
+    seen=0
+    for y in "${uniq[@]}"; do
+      [[ "$y" == "$x" ]] && seen=1 && break
+    done
+    [[ $seen -eq 0 ]] && uniq+=("$x")
+  done
+  candidates=("${uniq[@]}")
+
+
+
+  local USE_SOCKS=0
+  local round try_url ok
+
+  for ((round=1; round<=MAX_ROUNDS; round++)); do
+    echo "[$label] ===== Round $round / $MAX_ROUNDS ====="
+    rm -f "$tmp"
+
+   
+    if [[ "${PROXY_MODE:-}" == "DIRECT" ]]; then
+      USE_SOCKS=0
+      _wget_proxy_env_off
+      echo "[$label][INFO] Direct connection selected: Force direct connection (no proxy used)"
+
+    elif [[ "${IS_CN:-0}" -eq 0 ]]; then
+      USE_SOCKS=0
+      _wget_proxy_env_off
+      echo "[$label][INFO] Non-CN IPs: Forced direct connection (no proxy used)"
+
+    else
+    
+      if _ensure_socks_ready; then
+        USE_SOCKS=1
+        echo "[$label][INFO] Mainland IPs: SSH tunneling available; download using SOCKS5 proxy."
+      else
+        USE_SOCKS=0
+        _wget_proxy_env_off
+        echo "[$label][WARN] Mainland IP: SSH tunneling unavailable; please attempt direct connection for download."
+      fi
+    fi
+
+    for try_url in "${candidates[@]}"; do
+      echo "[$label] trying: $try_url (socks=$USE_SOCKS)"
+
+      ok=0
+      if command -v aria2c >/dev/null 2>&1; then
+        if (( USE_SOCKS == 1 )); then
+          aria2c -c -x 8 -s 8 -k 1M \
+            --connect-timeout=10 --timeout=60 --retry-wait=1 --max-tries=5 \
+            --allow-overwrite=true \
+            --user-agent="$ua" \
+            $(_aria2_proxy_opts) \
+            -o "$(basename "$tmp")" -d "$(dirname "$tmp")" \
+            "$try_url" && ok=1 || ok=0
+        else
+    
+          aria2c -c -x 8 -s 8 -k 1M \
+            --connect-timeout=10 --timeout=60 --retry-wait=1 --max-tries=5 \
+            --allow-overwrite=true \
+            --user-agent="$ua" \
+            --all-proxy="" \
+            -o "$(basename "$tmp")" -d "$(dirname "$tmp")" \
+            "$try_url" && ok=1 || ok=0
+        fi
+
+      elif command -v curl >/dev/null 2>&1; then
+        if (( USE_SOCKS == 1 )); then
+          curl -A "$ua" -fL --http1.1 \
+            --socks5-hostname "${LOCAL_SOCKS_BIND}:${LOCAL_SOCKS_PORT}" \
+            --connect-timeout 10 --max-time 900 \
+            --retry 5 --retry-delay 1 --retry-connrefused \
+            -C - -o "$tmp" "$try_url" && ok=1 || ok=0
+        else
+     
+          env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+            curl -A "$ua" -fL --http1.1 \
+            --proxy "" --noproxy "*" \
+            --connect-timeout 10 --max-time 900 \
+            --retry 5 --retry-delay 1 --retry-connrefused \
+            -C - -o "$tmp" "$try_url" && ok=1 || ok=0
+        fi
+
+      else
+      
+        if (( USE_SOCKS == 1 )); then
+          _wget_proxy_env_on
+        else
+          _wget_proxy_env_off
+        fi
+
+        wget -c --timeout=10 --tries=5 --waitretry=1 \
+          --header="User-Agent: $ua" \
+          -O "$tmp" "$try_url" && ok=1 || ok=0
+      fi
+
+      if [[ $ok -eq 1 && -s "$tmp" ]]; then
+        mv -f "$tmp" "$out"
+        echo "[$label][OK] -> $out"
+        return 0
+      fi
+    done
+
+    if (( round < MAX_ROUNDS )); then
+      echo "[$label][WARN] round $round failed, retry after ${ROUND_SLEEP}s..."
+      sleep "$ROUND_SLEEP"
+    fi
+  done
+
+  rm -f "$tmp"
+  echo "[$label][ERROR] download failed after $MAX_ROUNDS rounds (candidates exhausted)."
+  return 1
+}
 is_lan
 detect_cn_ip || true
 
-
 aptinit() {
+    local ORIG_IS_CN="${IS_CN:-0}" 
+    local APT_USE_CN_MIRROR=0 
 
     echo "Current IP: $PUBLIC_IP, IS_CN=$IS_CN"
 
@@ -647,14 +694,14 @@ aptinit() {
     local SECURITY_MIRROR=""
 
    
-    if [[ "$IS_CN" -eq 1 ]]; then
+    if [[ "${IS_CN:-0}" -eq 1 ]]; then
         echo
-        echo "Detected mainland IP address. You may switch to domestic APT mirror sources.："
+        echo "Detected mainland IP address. You may switch to domestic APT mirror sources:"
         echo
-        echo "  1)(aliyun)"
-        echo "  2)(tsinghua)"
-        echo "  3)163"
-        echo "  4)(huawei)"
+        echo "  1) (aliyun)"
+        echo "  2) (tsinghua)"
+        echo "  3) (163)"
+        echo "  4) (huawei)"
         echo "  5) Do not switch; keep the current source."
         echo
 
@@ -662,72 +709,74 @@ aptinit() {
             MIRROR_CHOICE="$APT_MIRROR"
             echo "Specify the image using environment variables:$MIRROR_CHOICE"
         else
-           
-            read -rp "Please select an image source [1-5]. Press Enter to default to 5.: " MIRROR_CHOICE
-           
+            read -rp "Please select an image source. [1-5],Press Enter to accept the default setting. 5: " MIRROR_CHOICE
             MIRROR_CHOICE="${MIRROR_CHOICE:-5}"
         fi
 
-       
         echo "Final selected image serial number:$MIRROR_CHOICE"
 
         case "$MIRROR_CHOICE" in
             1|aliyun)
+                APT_USE_CN_MIRROR=1
                 MIRROR_NAME="aliyun"
                 UBUNTU_MIRROR="https://mirrors.aliyun.com/ubuntu/"
                 DEBIAN_MIRROR="https://mirrors.aliyun.com/debian/"
                 SECURITY_MIRROR="https://mirrors.aliyun.com/debian-security/"
                 ;;
             2|tsinghua)
-                MIRROR_NAME="Tsinghua"
+                APT_USE_CN_MIRROR=1
+                MIRROR_NAME="tsinghua"
                 UBUNTU_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/ubuntu/"
                 DEBIAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian/"
                 SECURITY_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/debian-security/"
                 ;;
             3|163)
+                APT_USE_CN_MIRROR=1
                 MIRROR_NAME="163"
                 UBUNTU_MIRROR="https://mirrors.163.com/ubuntu/"
                 DEBIAN_MIRROR="https://mirrors.163.com/debian/"
                 SECURITY_MIRROR="https://mirrors.163.com/debian-security/"
                 ;;
             4|huawei)
+                APT_USE_CN_MIRROR=1
                 MIRROR_NAME="huawei"
                 UBUNTU_MIRROR="https://repo.huaweicloud.com/ubuntu/"
                 DEBIAN_MIRROR="https://repo.huaweicloud.com/debian/"
                 SECURITY_MIRROR="https://repo.huaweicloud.com/debian-security/"
                 ;;
             5|keep|"")
+                APT_USE_CN_MIRROR=0
                 echo "Keep the current APT sources and do not switch them."
-                IS_CN=0
                 ;;
             *)
+                APT_USE_CN_MIRROR=0
                 echo "Invalid selection, keep current source."
-                IS_CN=0
                 ;;
         esac
     else
-        echo "Non-mainland IP, using default source..."
+        echo "Non-CN IP, using default source..."
     fi
 
-    if [[ "$IS_CN" -eq 1 ]]; then
+   
+    if [[ "$APT_USE_CN_MIRROR" -eq 1 ]]; then
         echo
         echo "Using the image:$MIRROR_NAME"
         echo "Detection System..."
 
         . /etc/os-release 2>/dev/null || {
-            echo "Unable to read /etc/os-release. Skipping image source configuration."
-            IS_CN=0
+            echo "Unable to read /etc/os-release,Skip mirror source settings"
+            APT_USE_CN_MIRROR=0
         }
     fi
 
-    if [[ "$IS_CN" -eq 1 ]]; then
+    if [[ "$APT_USE_CN_MIRROR" -eq 1 ]]; then
         local ID_LOWER
         ID_LOWER="$(echo "${ID:-}" | tr '[:upper:]' '[:lower:]')"
         local CODENAME="${VERSION_CODENAME:-}"
 
         echo "    ID=${ID_LOWER}, CODENAME=${CODENAME}"
-
         echo "Back up and write to the image source..."
+
         [ -f /etc/apt/sources.list ] && \
             cp /etc/apt/sources.list "/etc/apt/sources.list.bak.$(date +%Y%m%d-%H%M%S)"
 
@@ -757,7 +806,7 @@ deb ${DEBIAN_MIRROR} ${CODENAME}-backports main contrib non-free non-free-firmwa
 EOF
             echo "Debian Source has been switched to:$MIRROR_NAME (${CODENAME})"
         else
-            echo "Unidentified distribution:$ID_LOWER，no changes to the source."
+            echo "Unidentified distribution:$ID_LOWER,Do not modify the source."
         fi
     fi
 
@@ -768,9 +817,13 @@ EOF
     apt -y full-upgrade || echo "apt upgrade Failure, continue execution..."
     update-ca-certificates 2>/dev/null || true
 
+
+    IS_CN="$ORIG_IS_CN"
     echo "aptinit Completed"
     return 0
 }
+
+
 
 enable_proxy() {
 
@@ -894,8 +947,6 @@ Acquire::https::Proxy "DIRECT";
 Acquire::ftp::Proxy "DIRECT";
 Acquire::socks::Proxy "DIRECT";
 EOF
-
-
 
     echo "[proxy][OK] Proxy enabled:$proxy_addr"
   }
@@ -1393,7 +1444,7 @@ server{
     }
     
     
-    
+
     location = /webdav {
         return 301 /webdav/;
     }
