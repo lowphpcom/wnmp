@@ -182,7 +182,7 @@ Win+R 组合键打开运行输入框，输入cmd # 键盘组合键shift+ctrl+ent
 
 wsl -l -o # 查看是否能读取远程系统列表，如果能正常读取，表示wsl正常
 
-wsl --install debian --web-download # (开始安装debian13子系统，第一次执行命令会要求重启电脑，或提示未开启CPU虚拟化支持等，请根据提示操作)
+`wsl --install debian` # 或者 `wsl --install debian --web-download` # (开始安装debian13子系统，第一次执行命令会要求重启电脑，或提示未开启CPU虚拟化支持等，请根据提示操作)
 
 正常安装后会要求配置一个普通账号+密码，配置成功后直接：exit 退出子系统
 
