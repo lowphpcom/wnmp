@@ -116,6 +116,13 @@ chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
+```bash
+apt update && apt install -y curl
+curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh
+```
+
 License: **GPLv3**  
 Please execute commands using the root account on a completely clean system.
 
@@ -202,6 +209,13 @@ After successful installation, you will be prompted to configure a standard acco
 cd /root
 apt update && apt install -y curl
 curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh
+```
+
+```bash
+apt update && apt install -y curl
+curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
 ```
