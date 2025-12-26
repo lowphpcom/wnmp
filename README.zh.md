@@ -221,7 +221,7 @@ chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
-在此电脑任务地址栏定位打开C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup # 请用windows登录的真实账号名代替[username]
+在此电脑任务地址栏定位打开`C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup` # 请用windows登录的真实账号名代替[username]
 
 新建一个wsl.vbs文件并写入内容：
 ```bash
@@ -241,7 +241,7 @@ ws.run "wsl -d debian", 0
 
 `wsl --unregister debian` # 卸载子系统
 
-如需要局域网访问子系统，打开C:\Users\[username]目录 # 请用windows登录的真实账号名代替[username]
+如需要局域网访问子系统，打开`C:\Users\[username]`目录 # 请用windows登录的真实账号名代替[username]
 
 新建一个.wslconfig文件并写入内容：
 ```bash
