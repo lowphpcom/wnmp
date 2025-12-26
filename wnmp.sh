@@ -3069,7 +3069,7 @@ case "$choosenginx" in
     mkdir -p /home/wwwroot/default
     mkdir -p /home/wwwlogs
     mkdir -p /home/passwd
-    htpasswd -bc /home/passwd/.default wnmp ${MYSQL_PASS}
+    htpasswd -bc /home/passwd/.default wnmp "${MYSQL_PASS:-needpasswd}"
     chown -R www:www /home/passwd
     chown -R www:www /home/wwwroot
     chown -R www:www /home/wwwlogs
