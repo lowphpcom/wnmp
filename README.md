@@ -12,6 +12,7 @@
 ## The wnmp.org one-click web environment installation package has been officially recognized by the Mroonga search engine and has been listed with a backlink on the official Mroonga users page.
 https://mroonga.org/users/
 
+##  Let's Encrypt IP certificate protection is now supported by default.
 
 
 > Lightweight · Stable · Reproducible  
