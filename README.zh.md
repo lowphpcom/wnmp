@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Debian%2012%2F13%20%7C%20Ubuntu%2022--25-green.svg)
 ![Build](https://img.shields.io/badge/Installer-一键安装-orange.svg)
 
-
+## 已默认支持Let's Encrypt IP证书保护
 
 ## wnmp.org一键web环境安装包，已得到mroonga搜索引擎官方认可，已在官方页面得到友情链接。
 https://mroonga.org/users/
@@ -13,7 +13,7 @@ https://mroonga.org/users/
 
 > 轻量 · 稳定 · 可复制  
 > 一条命令在Windows11(WSL)+Linux(Debian,Ubuntu)安装 Nginx + PHP + MariaDB（内置 Mroonga 搜索引擎）+ WebDAV，自动完成内核/网络调优与 SSL 证书配置。
-> 已默认申请Let's Encrypt IP证书保护
+
 ---
 
 ## WNMP：
