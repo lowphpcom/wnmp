@@ -110,14 +110,14 @@ It’s designed for **small to medium websites, edge nodes, and private deployme
 ## ⚙️ Installation
 
 ```bash
-apt update && apt install -y curl
+cd/root && apt update && apt install -y curl
 curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
 ```bash
-apt update && apt install -y curl
+cd/root && apt update && apt install -y curl
 curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
@@ -206,15 +206,14 @@ After successful installation, you will be prompted to configure a standard acco
 `wsl -d debian -u root` # Log into the Debian system as root
 
 ```bash
-cd /root
-apt update && apt install -y curl
+cd /root && apt update && apt install -y curl
 curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
 ```bash
-apt update && apt install -y curl
+cd /root && apt update && apt install -y curl
 curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
