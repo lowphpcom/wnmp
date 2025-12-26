@@ -103,8 +103,15 @@ v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和
 ## ⚙️ 安装方法
 
 ```bash
-apt update && apt install -y curl
-curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh
+cd /root && apt update && apt install -y curl
+curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh
+```
+
+```bash
+cd /root && apt update && apt install -y curl
+curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
 ```
@@ -201,12 +208,19 @@ EOF
 ```
 
 ```bash
-cd /root
-apt update && apt install -y curl
-curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh
+cd /root && apt update && apt install -y curl
+curl -fL https://wnmp.org/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
 bash wnmp.sh
 ```
+
+```bash
+cd /root && apt update && apt install -y curl
+curl -fL https://raw.githubusercontent.com/lowphpcom/wnmp/main/wnmp.sh -o wnmp.sh
+chmod +x wnmp.sh
+bash wnmp.sh
+```
+
 在此电脑任务地址栏定位打开C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup # 请用windows登录的真实账号名代替[username]
 
 新建一个wsl.vbs文件并写入内容：
