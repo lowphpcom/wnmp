@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.32
+# Version: 1.33
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.32"
+green  " [init] Version: 1.33"
 green  "============================================================"
 echo
 sleep 1
@@ -84,6 +84,7 @@ usage() {
   wnmp rephp         # 卸载php
   wnmp remariadb     # 卸载mariadb
   wnmp fixsshd       # 自检sshd尝试修复
+  wnmp devssl        # 自签证书
   wnmp -h|--help     # 查看帮助
 USAGE
 }
@@ -1316,9 +1317,242 @@ webdav() {
 }
 
 
+_wnmp_pick_best_ipv4() {
+  local x private="" ip_list=""
+  if command -v hostname >/dev/null 2>&1; then
+    ip_list="$(hostname -I 2>/dev/null || true)"
+  fi
+  if [[ -z "$ip_list" ]] && command -v ip >/dev/null 2>&1; then
+    ip_list="$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[\d.]+' || true)"
+  fi
+  for x in $ip_list; do
+    [[ -z "$x" ]] && continue
+    [[ "$x" =~ ^127\. ]] && continue
+    if [[ "$x" =~ ^10\. ]] || [[ "$x" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || [[ "$x" =~ ^192\.168\. ]] || [[ "$x" =~ ^169\.254\. ]]; then
+      [[ -z "$private" ]] && private="$x"
+      continue
+    fi
+    echo "$x"; return 0
+  done
+  [[ -n "$private" ]] && echo "$private" || echo ""
+}
+
+_wnmp_nginx_inject_after_server_name() {
+
+  local conf="$1" snip="$2"
+  awk -v SNIP="$snip" 'BEGIN{inserted=0}{
+    print $0
+    if (inserted==0 && $0 ~ /server_name[ \t].*;/){ print SNIP; inserted=1 }
+  }' "$conf" > "$conf.tmp" && mv "$conf.tmp" "$conf"
+}
+
+_wnmp_nginx_remove_block() {
+
+  local conf="$1" tag="$2"
+  sed -i "/# BEGIN ${tag}/,/# END ${tag}/d" "$conf" 2>/dev/null || true
+}
+
+_wnmp_nginx_ensure_https_core() {
+
+  local conf="$1"
+  if ! grep -qE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl;' "$conf"; then
+
+    if grep -qE '^[[:space:]]*listen[[:space:]]+80;' "$conf"; then
+      sed -i '0,/^[[:space:]]*listen[[:space:]]\+80;/{s/^[[:space:]]*listen[[:space:]]\+80;/    listen 80;\n    listen 443 ssl;/}' "$conf"
+    else
+ 
+      sed -i '0,/server[[:space:]]*{/s/server[[:space:]]*{/server{\n    listen 443 ssl;/' "$conf"
+    fi
+  fi
+
+ 
+  if ! grep -qE '^[[:space:]]*http2[[:space:]]+on;' "$conf"; then
+    _wnmp_nginx_inject_after_server_name "$conf" "    http2 on;"
+  fi
+}
+
+_wnmp_nginx_set_ssl_paths_devssl() {
+
+  local conf="$1" ssl_dir="$2"
+  local cert="${ssl_dir}/cert.pem"
+  local key="${ssl_dir}/key.pem"
+  local ca="${ssl_dir}/ca.pem"
+
+  _wnmp_nginx_remove_block "$conf" "WNMP-DEVSSL"
+
+  local block
+  block="$(cat <<EOF
+# BEGIN WNMP-DEVSSL
+    # mkcert self-signed for LAN/dev
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
+    ssl_trusted_certificate ${ca};
+    ssl_session_cache   shared:SSL:20m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+# END WNMP-DEVSSL
+EOF
+)"
+  _wnmp_nginx_inject_after_server_name "$conf" "$block"
+}
+
+_wnmp_nginx_set_http_to_https_redirect_devssl() {
+
+  local conf="$1"
 
 
+  sed -i '/# BEGIN WNMP-DEVSSL-REDIRECT/,/# END WNMP-DEVSSL-REDIRECT/d' "$conf" 2>/dev/null || true
 
+  local block
+  block="$(cat <<'EOF'
+# BEGIN WNMP-DEVSSL-REDIRECT
+    # devssl: force http -> https
+    if ($server_port = 80) {
+        return 301 https://$host$request_uri;
+    }
+# END WNMP-DEVSSL-REDIRECT
+EOF
+)"
+
+
+  awk -v SNIP="$block" '
+    BEGIN{inserted=0}
+    {
+      print $0
+      if (inserted==0 && $0 ~ /server_name[ \t].*;/) {
+        print SNIP
+        inserted=1
+      }
+    }
+  ' "$conf" > "$conf.tmp" && mv "$conf.tmp" "$conf"
+}
+
+
+devssl() {
+  echo
+  green "============================================================"
+  green " [devssl] mkcert 本地/局域网自签证书 + 自动注入 vhost HTTPS"
+  green "============================================================"
+  echo
+
+
+  if ! command -v mkcert >/dev/null 2>&1; then
+    echo "[devssl] 未检测到 mkcert，开始安装..."
+    apt update
+    apt install -y libnss3-tools curl ca-certificates
+    curl -fsSL "https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-amd64" \
+      -o /usr/local/bin/mkcert
+    chmod +x /usr/local/bin/mkcert
+  fi
+
+
+  echo "[devssl] 初始化 Root CA（只需一次）..."
+  mkcert -install >/dev/null 2>&1 || true
+
+  local CAROOT
+  CAROOT="$(mkcert -CAROOT 2>/dev/null || true)"
+  if [[ -z "$CAROOT" || ! -f "$CAROOT/rootCA.pem" ]]; then
+    red "[devssl][ERROR] 未找到 rootCA.pem（mkcert -CAROOT 失败），请检查 mkcert 是否正常。"
+    return 1
+  fi
+
+
+  local DOMAINS=()
+  shift || true
+  if [[ $# -gt 0 ]]; then
+    DOMAINS=("$@")
+  else
+    read -rp "请输入要用于开发 HTTPS 的域名（可多个，空格分隔，如：a.lan www.a.lan）: " -a DOMAINS
+  fi
+  [[ ${#DOMAINS[@]} -gt 0 ]] || { red "[devssl] 未输入域名，退出。"; return 1; }
+
+
+  local LAN_IP
+  LAN_IP="$(_wnmp_pick_best_ipv4)"
+  local SAN_LIST=("${DOMAINS[@]}" "localhost" "127.0.0.1")
+  [[ -n "$LAN_IP" ]] && SAN_LIST+=("$LAN_IP")
+
+  local primary="${DOMAINS[0]}"
+  local vhost_dir="/usr/local/nginx/vhost"
+  local ssl_dir="/usr/local/nginx/ssl/${primary}"
+
+  mkdir -p "$ssl_dir"
+  cd "$ssl_dir"
+
+  echo
+  echo "[devssl] 生成证书（SAN）：${SAN_LIST[*]}"
+
+  mkcert "${SAN_LIST[@]}" >/dev/null
+
+  local certfile keyfile
+  certfile="$(ls -1 *.pem 2>/dev/null | grep -v -- '-key\.pem$' | head -n1 || true)"
+  keyfile="$(ls -1 *-key.pem 2>/dev/null | head -n1 || true)"
+
+  if [[ -z "$certfile" || -z "$keyfile" ]]; then
+    red "[devssl][ERROR] mkcert 输出文件未找到（*.pem / *-key.pem），生成失败。"
+    return 1
+  fi
+
+
+  mv -f "$certfile" cert.pem
+  mv -f "$keyfile"  key.pem
+
+  cp -f "$CAROOT/rootCA.pem" ca.pem
+
+  echo "[devssl][OK] 证书文件："
+  echo "  $ssl_dir/cert.pem"
+  echo "  $ssl_dir/key.pem"
+  echo "  $ssl_dir/ca.pem (Root CA copy)"
+
+
+  local conf1="$vhost_dir/${primary}.conf"
+  local conf2="$vhost_dir/${primary#www.}.conf"
+  local conf=""
+
+  if [[ -f "$conf1" ]]; then
+    conf="$conf1"
+  elif [[ -f "$conf2" ]]; then
+    conf="$conf2"
+  else
+    yellow "[devssl][WARN] 未找到 vhost 配置："
+    echo "  $conf1"
+    echo "  $conf2"
+    echo "[devssl] 你可以先执行：wnmp vhost 创建站点，然后再执行 wnmp devssl 域名..."
+  fi
+
+  if [[ -n "$conf" ]]; then
+    cp -a "$conf" "${conf}.bak-devssl-$(date +%Y%m%d-%H%M%S)" || true
+
+
+    _wnmp_nginx_ensure_https_core "$conf"
+
+    _wnmp_nginx_set_ssl_paths_devssl "$conf" "$ssl_dir"
+
+    _wnmp_nginx_set_http_to_https_redirect_devssl "$conf"
+
+    sed -i '/Strict-Transport-Security/d' "$conf" 2>/dev/null || true
+
+    if /usr/local/nginx/sbin/nginx -t; then
+      /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx || true
+      green "[devssl][OK] 已注入并重载 nginx：$conf"
+    else
+      red "[devssl][ERROR] nginx -t 失败，已保留备份：${conf}.bak-devssl-*"
+      return 1
+    fi
+  fi
+
+  echo
+  yellow "============================================================"
+  yellow " [重要] 让手机/其他电脑信任自签 HTTPS：导入 Root CA"
+  yellow "============================================================"
+  echo "Root CA 目录：$CAROOT"
+  echo "Root CA 文件：$CAROOT/rootCA.pem"
+  echo
+  echo "导入说明（访问你局域网 HTTPS 的设备都要做一次）："
+  echo "  • Android：设置 → 安全 → 加密与凭据/证书 → 从存储安装 → CA 证书 → 选择 rootCA.pem"
+  echo "  • iOS：把 rootCA.pem 发到手机 → 安装描述文件 → 设置 → 通用 → 关于本机 → 证书信任设置 → 打开信任"
+  echo "  • Windows：导出 rootCA.pem → 改名为rootCA.crt → 双击安装证书 → 选择受信任的根证书颁发机构"
+  echo
+}
 
 vhost() {
   if [[ "$IS_LAN" -eq 1 ]]; then
@@ -1882,10 +2116,6 @@ remariadb(){
   exit 0
 
 }
-
-
-
-
 
 sshkey() {
  
@@ -2570,6 +2800,7 @@ for arg in "$@"; do
      rephp) rephp; exit 0 ;;
      remariadb) remariadb; exit 0 ;;
      fixsshd) fixsshd; exit 0 ;;
+     devssl) devssl; exit 0 ;;
      "") ;;
      *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
    esac
@@ -3039,7 +3270,7 @@ fi
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-     purge_nginx
+    purge_nginx
     cd "$WNMPDIR"
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
