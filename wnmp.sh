@@ -1555,6 +1555,7 @@ devssl() {
 }
 
 vhost() {
+  is_lan
   if [[ "$IS_LAN" -eq 1 ]]; then
     red "[env] This is an internal network environment; certificate requests will be skipped."
     read -rp "Is it mandatory to apply for the certificate?[y/N] " ans
@@ -1622,7 +1623,7 @@ server{
         location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
     }
     
-    
+    location ^~ /.well-known/ {allow all;}
 
     access_log off;
 }
@@ -1688,7 +1689,7 @@ server{
         location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
     }
     
-    
+    location ^~ /.well-known/ {allow all;}
 
     location = /webdav {
         return 301 /webdav/;
