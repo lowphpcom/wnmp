@@ -2795,7 +2795,15 @@ ensure_user() {
 wnmp_sslcheck() {
     local ACME_HOME="/root/.acme.sh"
     local SSL_CHECK="$ACME_HOME/sslcheck"
-    echo "[WNMP] Configure the acme.sh custom certificate health check script sslcheck..."
+    local CRON_LINE="17 3 * * * $SSL_CHECK >/var/log/sslcheck.log 2>&1"
+    local tmp
+
+    echo "[WNMP] sslcheck: begin"
+
+    mkdir -p "$ACME_HOME" || { echo "[WNMP] sslcheck: mkdir failed"; return 1; }
+
+
+    echo "[WNMP] sslcheck: write $SSL_CHECK"
     cat > "$SSL_CHECK" <<'EOF'
 #!/bin/bash
 set -u
@@ -2915,18 +2923,55 @@ if [ -f "$FLAG" ]; then
   systemctl restart nginx
   rm -f "$FLAG"
 fi
-
 EOF
+    chmod +x "$SSL_CHECK" || { echo "[WNMP] sslcheck: chmod failed"; return 1; }
 
-    chmod +x "$SSL_CHECK"
-    crontab -l 2>/dev/null \
-    | grep -vE 'acme\.sh.*--cron' \
-    | crontab -
 
-    if ! crontab -l 2>/dev/null | grep -q "$SSL_CHECK"; then
-        (crontab -l 2>/dev/null; echo "17 3 * * * $SSL_CHECK >/var/log/sslcheck.log 2>&1") | crontab -
+    echo "[WNMP] sslcheck: read crontab"
+    tmp="$(mktemp)" || { echo "[WNMP] sslcheck: mktemp failed"; return 1; }
+
+    if crontab -l >"$tmp" 2>/dev/null; then
+        echo "[WNMP] sslcheck: crontab loaded"
+    else
+        echo "[WNMP] sslcheck: no existing crontab (ok)"
+        : > "$tmp"
     fi
+
+
+    echo "[WNMP] sslcheck: remove acme.sh cron lines"
+    {
+ 
+        awk '!($0 ~ /acme\.sh/ && $0 ~ /--cron/)' "$tmp" > "${tmp}.new"
+        mv -f "${tmp}.new" "$tmp"
+    } || {
+        echo "[WNMP] sslcheck: filter cron failed"
+        rm -f "$tmp" "${tmp}.new"
+        return 1
+    }
+
+ 
+    echo "[WNMP] sslcheck: ensure sslcheck cron line"
+    if ! grep -Fq "$SSL_CHECK" "$tmp" 2>/dev/null; then
+        echo "$CRON_LINE" >> "$tmp"
+        echo "[WNMP] sslcheck: cron line added"
+    else
+        echo "[WNMP] sslcheck: cron line already exists"
+    fi
+
+
+    echo "[WNMP] sslcheck: install crontab"
+    if crontab "$tmp"; then
+        echo "[WNMP] sslcheck: crontab installed"
+    else
+        echo "[WNMP] sslcheck: crontab install failed"
+        rm -f "$tmp"
+        return 1
+    fi
+
+    rm -f "$tmp"
+
     echo "[WNMP] sslcheck Enabled: Runs once daily"
+    return 0
 }
 
 wnmp_ssltest() {
