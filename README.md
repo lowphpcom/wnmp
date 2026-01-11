@@ -38,9 +38,11 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.34 Added custom SSL check cron tasks `wnmp sslcheck` and `wnmp ssltest` to replace the default `acme.sh` cron job. These enable intelligent certificate renewal for short-lived domain and IP certificates. The official ACME renewal script fails to recognize the 6-day validity period for IP certificates and cannot automatically restart Nginx, resulting in failed IP certificate renewals.
+
 v1.33 Added `wnmp devssl` self-signed certificate, suitable for local development environments on Windows 11 WSL subsystem to handle HTTPS requests.
 
-v1.28 Added global variable wnmp; all commands can now be executed from any directory
+v1.28 Added global variable `wnmp` all commands can now be executed from any directory
 
 v1.26 Enables built-in PHP support for fileinfo, soap, and sodium extensions.
 
@@ -143,6 +145,7 @@ Please execute commands using the root account on a completely clean system.
 | Kernel/Network Optimization Only | `wnmp tool` #Verification command: ulimit -n && ulimit -u && sysctl --system | 
 | Restart All Services | `wnmp restart` |
 | Cleanup | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` |
+| SSL Renewal | `wnmp sshcheck` / `wnmp sshtest`  |
 ---
 
 ## 🌐 Optional Footer Badge
@@ -230,7 +233,7 @@ Create a new wsl.vbs file and add the following content:
 ```bash
 Set ws = CreateObject("Wscript.Shell")
 ws.run "wsl -d debian", 0
-#(ws.run "wsl -d ubuntu", 0)
+' (ws.run "wsl -d ubuntu", 0)
 ```
 After initialization completes, the subsystem will have the SSH server installed. Restart your computer as prompted, then you can log into your WSL Debian subsystem using an SSH client just like a regular server VPS.
 
