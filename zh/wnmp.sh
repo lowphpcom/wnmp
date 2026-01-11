@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.33
+# Version: 1.34
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.33"
+green  " [init] Version: 1.34"
 green  "============================================================"
 echo
 sleep 1
@@ -85,6 +85,8 @@ usage() {
   wnmp remariadb     # 卸载mariadb
   wnmp fixsshd       # 自检sshd尝试修复
   wnmp devssl        # 自签证书
+  wnmp sslcheck      # 安装证书续签脚本
+  wnmp ssltest       # 执行ssl检测
   wnmp -h|--help     # 查看帮助
 USAGE
 }
@@ -1873,6 +1875,13 @@ EOF
   echo "[vhost] 已生成配置：$conf"
 
 
+  if /usr/local/nginx/sbin/nginx -t; then
+    /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx
+    echo "[vhost] Nginx 已重载。"
+  else
+    echo "[vhost][ERROR] nginx 配置检查失败。"; return 1
+  fi
+
   get_cf_token() {
     local token_file="$acme_home/account.conf"
     if [[ -n "${CF_Token:-}" ]]; then
@@ -2356,6 +2365,7 @@ EOF
 
 
 
+
 MYSQL_PASS='needpasswd'
 
 
@@ -2784,8 +2794,186 @@ ensure_user() {
   fi
 }
 
+wnmp_sslcheck() {
+    local ACME_HOME="/root/.acme.sh"
+    local SSL_CHECK="$ACME_HOME/sslcheck"
+    echo "[WNMP] 配置 acme.sh 自定义证书巡检脚本 sslcheck..."
+    cat > "$SSL_CHECK" <<'EOF'
+#!/bin/bash
+set -u
+
+dir_path="/root/.acme.sh"
+acme_bin="/root/.acme.sh/acme.sh"
+
+THRESH_IP_DAYS=2
+THRESH_DOMAIN_DAYS=3
+
+SSL_BASE="/usr/local/nginx/ssl"
 
 
+IP_SSL_DIR="$SSL_BASE/default"
+
+FLAG="/tmp/acme_renew_need_restart_nginx.flag"
+rm -f "$FLAG"
+
+log() { echo -e "$*"; }
+
+is_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
+
+nginx_stop_if_running() {
+  if systemctl is-active --quiet nginx; then
+    systemctl stop nginx
+  fi
+}
+
+nginx_start_if_not_running() {
+  if ! systemctl is-active --quiet nginx; then   
+    systemctl start nginx
+  fi
+}
+
+get_cert_end_time() {
+  local host="$1"
+  if is_ip "$host"; then
+    echo | timeout 5 openssl s_client -connect "$host:443" 2>/dev/null \
+      | openssl x509 -noout -enddate 2>/dev/null | awk -F= '{print $2}'
+  else
+    echo | timeout 5 openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
+      | openssl x509 -noout -enddate 2>/dev/null | awk -F= '{print $2}'
+  fi
+}
+
+days_left_from_endtime() {
+  local end_time="$1"
+  local end_ts now_ts
+  end_ts=$(date -d "$end_time" +%s 2>/dev/null || true)
+  [ -z "${end_ts:-}" ] && return 1
+  now_ts=$(date -u +%s)
+  echo $(( (end_ts - now_ts) / 86400 ))
+}
+
+install_cert_to_dir() {
+  local domain="$1"
+  local ssl_dir="$2"
+
+  mkdir -p "$ssl_dir"
+
+  "$acme_bin" --install-cert -d "$domain" \
+    --ecc \
+    --key-file       "$ssl_dir/key.pem" \
+    --fullchain-file "$ssl_dir/cert.pem" \
+    --ca-file        "$ssl_dir/ca.pem" \
+    --reloadcmd      "true" || true
+
+  if [ -s "$ssl_dir/key.pem" ] && [ -s "$ssl_dir/cert.pem" ] && [ -s "$ssl_dir/ca.pem" ]; then
+    return 0
+  fi
+  return 1
+}
+
+while IFS= read -r -d '' full; do
+  dir="$(basename "$full")"
+  primary="${dir%_ecc}"
+  end_time="$(get_cert_end_time "$primary")"
+  if [ -z "${end_time:-}" ]; then
+    continue
+  fi
+
+  left_days="$(days_left_from_endtime "$end_time" || true)"
+  if [ -z "${left_days:-}" ]; then
+    continue
+  fi
+
+  log "  📅 Expiration Date: $end_time"
+  log "  ⏳ Days remaining: $left_days"
+
+  if is_ip "$primary"; then
+    if [ "$left_days" -lt "$THRESH_IP_DAYS" ]; then
+      nginx_stop_if_running
+      issue_ok=0
+      if "$acme_bin" --issue --server letsencrypt -d "$primary" \
+          --certificate-profile shortlived --standalone \
+          --keylength ec-256 --force; then
+        issue_ok=1
+      fi
+      nginx_start_if_not_running
+      if [ "$issue_ok" -eq 1 ]; then
+       install_cert_to_dir "$primary" "$IP_SSL_DIR";
+      fi
+    fi
+
+  else
+    if [ "$left_days" -lt "$THRESH_DOMAIN_DAYS" ]; then
+      if "$acme_bin" --renew -d "$primary" --ecc --force; then
+        ssl_dir="$SSL_BASE/$primary"
+        install_cert_to_dir "$primary" "$ssl_dir";
+      fi
+    fi
+  fi
+
+done < <(find "$dir_path" -maxdepth 1 -type d -name "*_ecc" -print0)
+
+if [ -f "$FLAG" ]; then 
+  systemctl restart nginx
+  rm -f "$FLAG"
+fi
+
+EOF
+
+    chmod +x "$SSL_CHECK"
+    crontab -l 2>/dev/null \
+    | grep -vE 'acme\.sh.*--cron' \
+    | crontab -
+
+    if ! crontab -l 2>/dev/null | grep -q "$SSL_CHECK"; then
+        (crontab -l 2>/dev/null; echo "17 3 * * * $SSL_CHECK >/var/log/sslcheck.log 2>&1") | crontab -
+    fi
+    echo "[WNMP] sslcheck 已启用：每日执行一次"
+}
+
+wnmp_ssltest() {
+    local ACME_HOME="/root/.acme.sh"
+    local NOW_TS
+    NOW_TS=$(date -u +%s)
+
+    printf "\n%-30s %-12s %-12s %-24s\n" "DOMAIN / IP" "TYPE" "LEFT(days)" "EXPIRE AT"
+    printf "%-30s %-12s %-12s %-24s\n" "------------------------------" "------------" "------------" "------------------------"
+
+    find "$ACME_HOME" -maxdepth 1 -type d -name "*_ecc" -print0 | while IFS= read -r -d '' d; do
+        local name domain end_time end_ts left_days type
+
+        name="$(basename "$d")"
+        domain="${name%_ecc}"
+
+        if [[ "$domain" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            type="IP(short)"
+            end_time=$(echo | timeout 4 openssl s_client \
+                -connect "$domain:443" 2>/dev/null \
+                | openssl x509 -noout -enddate 2>/dev/null \
+                | awk -F= '{print $2}')
+        else
+            type="ECC"
+            end_time=$(echo | timeout 4 openssl s_client \
+                -servername "$domain" \
+                -connect "$domain:443" 2>/dev/null \
+                | openssl x509 -noout -enddate 2>/dev/null \
+                | awk -F= '{print $2}')
+        fi
+
+        if [ -z "$end_time" ]; then
+            printf "%-30s %-12s %-12s %-24s\n" "$domain" "$type" "ERR" "unreachable"
+            return
+        fi
+
+        end_ts=$(date -d "$end_time" +%s 2>/dev/null || echo 0)
+        left_days=$(( (end_ts - NOW_TS) / 86400 ))
+
+        printf "%-30s %-12s %-12s %-24s\n" \
+            "$domain" "$type" "$left_days" "$end_time"
+    done
+
+    echo
+}
 
 for arg in "$@"; do
    case "${arg}" in
@@ -2802,6 +2990,8 @@ for arg in "$@"; do
      remariadb) remariadb; exit 0 ;;
      fixsshd) fixsshd; exit 0 ;;
      devssl) devssl; exit 0 ;;
+     sslcheck) wnmp_sslcheck; exit 0 ;;
+     ssltest) wnmp_ssltest; exit 0 ;;
      "") ;;
      *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
    esac
@@ -3879,7 +4069,7 @@ fi
     systemctl daemon-reload
     systemctl enable nginx
     systemctl start nginx
-
+    wnmp_sslcheck
     ;;
   n|N|no|NO|No)
     echo "您选择了'否'，跳过nginx安装..."
