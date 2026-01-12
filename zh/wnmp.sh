@@ -2977,47 +2977,57 @@ EOF
 }
 
 wnmp_ssltest() {
-    local ACME_HOME="/root/.acme.sh"
-    local NOW_TS
-    NOW_TS=$(date -u +%s)
+  local dir_path="/root/.acme.sh"
+  local NOW_TS; NOW_TS=$(date -u +%s)
 
-    printf "\n%-30s %-12s %-12s %-24s\n" "DOMAIN / IP" "TYPE" "LEFT(days)" "EXPIRE AT"
-    printf "%-30s %-12s %-12s %-24s\n" "------------------------------" "------------" "------------" "------------------------"
+  is_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
 
-    find "$ACME_HOME" -maxdepth 1 -type d -name "*_ecc" -print0 | while IFS= read -r -d '' d; do
-        local name domain end_time end_ts left_days type
+  get_cert_end_time() {
+    local host="$1"
+    if is_ip "$host"; then
+      echo | timeout 5 openssl s_client -connect "$host:443" 2>/dev/null \
+        | openssl x509 -noout -enddate 2>/dev/null | awk -F= '{print $2}'
+    else
+      echo | timeout 5 openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
+        | openssl x509 -noout -enddate 2>/dev/null | awk -F= '{print $2}'
+    fi
+  }
 
-        name="$(basename "$d")"
-        domain="${name%_ecc}"
+  days_left_from_endtime() {
+    local end_time="$1"
+    local end_ts now_ts
+    end_ts=$(date -d "$end_time" +%s 2>/dev/null || true)
+    [ -z "${end_ts:-}" ] && return 1
+    now_ts=$(date -u +%s)
+    echo $(( (end_ts - now_ts) / 86400 ))
+  }
 
-        if [[ "$domain" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-            type="IP(short)"
-            end_time=$(echo | timeout 4 openssl s_client \
-                -connect "$domain:443" 2>/dev/null \
-                | openssl x509 -noout -enddate 2>/dev/null \
-                | awk -F= '{print $2}')
-        else
-            type="ECC"
-            end_time=$(echo | timeout 4 openssl s_client \
-                -servername "$domain" \
-                -connect "$domain:443" 2>/dev/null \
-                | openssl x509 -noout -enddate 2>/dev/null \
-                | awk -F= '{print $2}')
-        fi
+  printf "\n%-30s %-12s %-12s %-24s\n" "DOMAIN / IP" "TYPE" "LEFT(days)" "EXPIRE AT"
+  printf "%-30s %-12s %-12s %-24s\n" "------------------------------" "------------" "------------" "------------------------"
 
-        if [ -z "$end_time" ]; then
-            printf "%-30s %-12s %-12s %-24s\n" "$domain" "$type" "ERR" "unreachable"
-            return
-        fi
+  while IFS= read -r -d '' full; do
+    local dir primary end_time left_days type
+    dir="$(basename "$full")"
+    primary="${dir%_ecc}"
 
-        end_ts=$(date -d "$end_time" +%s 2>/dev/null || echo 0)
-        left_days=$(( (end_ts - NOW_TS) / 86400 ))
+    if is_ip "$primary"; then type="IP(short)"; else type="ECC"; fi
 
-        printf "%-30s %-12s %-12s %-24s\n" \
-            "$domain" "$type" "$left_days" "$end_time"
-    done
+    end_time="$(get_cert_end_time "$primary")"
+    if [ -z "${end_time:-}" ]; then
+      printf "%-30s %-12s %-12s %-24s\n" "$primary" "$type" "ERR" "unreachable"
+      continue
+    fi
 
-    echo
+    left_days="$(days_left_from_endtime "$end_time" || true)"
+    if [ -z "${left_days:-}" ]; then
+      printf "%-30s %-12s %-12s %-24s\n" "$primary" "$type" "ERR" "bad date"
+      continue
+    fi
+
+    printf "%-30s %-12s %-12s %-24s\n" "$primary" "$type" "$left_days" "$end_time"
+  done < <(find "$dir_path" -maxdepth 1 -type d -name "*_ecc" -print0)
+
+  echo
 }
 
 for arg in "$@"; do
