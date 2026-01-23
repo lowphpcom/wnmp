@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.34
+# Version: 1.36
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.34"
+green  " [init] Version: 1.36"
 green  "============================================================"
 echo
 sleep 1
@@ -1176,7 +1176,14 @@ proxy_healthcheck() {
 
 
 webdav() {
-  local domain user pass passwd_file ans
+
+  local domain="${1:-${domain:-}}"
+  local user pass passwd_file ans
+
+  if [[ -z "$domain" ]]; then
+    echo "[webdav][ERROR] domain 为空。用法：webdav <domain> （或在 vhost() 中先设置 domain 变量后直接调用 webdav）"
+    return 1
+  fi
 
   read -rp "是否开启 WebDAV？[y/N] " ans
   ans="${ans:-N}"
@@ -1184,22 +1191,9 @@ webdav() {
     echo "[webdav] 已跳过。"
     return 0
   fi
-  
-  while :; do
-    read -rp "站点存在多个域名的，请输入最终重定向域名（例如：wwww.example.com）:" domain
-    [[ -n "$domain" ]] && break
-    echo "[webdav][WARN] 域名不能为空。"
-  done
-
-
-  read -rp "是否开启 公开目录默认（否）？[y/N] " ans
-  ans="${ans:-N}"
-  local enable_public=0
-  [[ "$ans" =~ ^[Yy]$ ]] && enable_public=1
-
 
   local VHOST_DIR="/usr/local/nginx/vhost"
-  local domain_lc conf_path backup tmp
+  local domain_lc conf_path backup
   domain_lc="$(echo "$domain" | tr '[:upper:]' '[:lower:]')"
   conf_path="$VHOST_DIR/${domain_lc}.conf"
   if [[ ! -f "$conf_path" && "$domain_lc" =~ ^www\. ]]; then
@@ -1225,59 +1219,6 @@ webdav() {
   backup="${conf_path}.bak-$(date +%Y%m%d-%H%M%S)"
   cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] 备份失败：$backup"; return 1; }
 
- 
-  insert_once() { 
-    local _conf="$1" _line="$2" _tmp
-    grep -qE "^[[:space:]]*${_line//\//\\/}[[:space:]]*$" "$_conf" && return 0
-    _tmp="$(mktemp)"
-    awk -v INS="    ${_line}" '
-      BEGIN { depth=0; inserted=0 }
-      {
-        line=$0
-        if (depth==1 && inserted==0 && line ~ /^[[:space:]]*index[[:space:]]+index\.html;[[:space:]]*$/) {
-          print line; print INS; inserted=1; next
-        }
-        if (depth==1 && inserted==0 && line ~ /^[[:space:]]*location[[:space:]]+/) {
-          print INS; inserted=1; print line; next
-        }
-        print line
-        open_cnt  = gsub(/{/,"&")
-        close_cnt = gsub(/}/,"&")
-        depth += open_cnt - close_cnt
-      }
-    ' "$_conf" > "$_tmp"
-
-    if ! grep -qE "^[[:space:]]*${_line//\//\\/}[[:space:]]*$" "$_tmp"; then
-      awk -v INS="    ${_line}" '
-        BEGIN{depth=0; done=0}
-        {
-          line=$0; print line
-          open_cnt  = gsub(/{/,"&"); close_cnt = gsub(/}/,"&")
-          next_depth = depth + open_cnt - close_cnt
-          if (!done && depth==1 && next_depth==0) { print INS; done=1 }
-          depth = next_depth
-        }
-      ' "$_tmp" > "${_tmp}.2" && mv "${_tmp}.2" "$_tmp"
-    fi
-    mv "$_tmp" "$_conf"
-  }
-
-
-  if [[ $enable_public -eq 1 ]]; then
-  
-    sed -i '/^[[:space:]]*include[[:space:]]\+enable-php\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] 已移除 include enable-php.conf;（禁止 PHP 执行）"
-    insert_once "$conf_path" "include download.conf;"
-    echo "[webdav] 已确保 include download.conf;"
-  else
-
-    sed -i '/^[[:space:]]*include[[:space:]]\+download\.conf;[[:space:]]*$/d' "$conf_path"
-    echo "[webdav] 已移除 include download.conf;"
-    insert_once "$conf_path" "include enable-php.conf;"
-    echo "[webdav] 已确保 include enable-php.conf;"
-  fi
-
-
   if "$NGINX_BIN" -t; then
     if systemctl >/dev/null 2>&1; then
       systemctl reload nginx 2>/dev/null || "$NGINX_BIN" -s reload
@@ -1290,7 +1231,6 @@ webdav() {
     cp -a "$backup" "$conf_path" >/dev/null 2>&1 || true
     return 1
   fi
-
 
   local passwd_dir="/home/passwd"
   mkdir -p "$passwd_dir"
@@ -1317,6 +1257,7 @@ webdav() {
 
   echo "[webdav] ✅ 已写入账号：$user -> $passwd_file"
 }
+
 
 
 _wnmp_pick_best_ipv4() {
@@ -1556,6 +1497,91 @@ devssl() {
   echo
 }
 
+download() {
+  local domain="$1"
+  local enable_public="${2:-}" 
+  local ans
+
+  if [[ -z "$enable_public" ]]; then
+    read -rp "是否开启 公开目录？[y/N]（Y=开启，N=关闭） " ans
+    ans="${ans:-N}"
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+      enable_public=1
+    else
+      enable_public=0
+    fi
+  else
+    [[ "$enable_public" == "1" ]] && enable_public=1 || enable_public=0
+  fi
+
+  local VHOST_DIR="/usr/local/nginx/vhost"
+  local domain_lc conf_path
+  domain_lc="$(echo "$domain" | tr '[:upper:]' '[:lower:]')"
+  conf_path="$VHOST_DIR/${domain_lc}.conf"
+  if [[ ! -f "$conf_path" && "$domain_lc" =~ ^www\. ]]; then
+    conf_path="$VHOST_DIR/${domain_lc#www.}.conf"
+  fi
+  if [[ ! -f "$conf_path" ]]; then
+    echo "[download][ERROR] 未找到配置：$VHOST_DIR/${domain_lc}.conf 或 ${domain_lc#www.}.conf"
+    return 1
+  fi
+
+  insert_once() {
+    local _conf="$1" _line="$2" _tmp
+    grep -qE "^[[:space:]]*${_line//\//\\/}[[:space:]]*$" "$_conf" && return 0
+    _tmp="$(mktemp)"
+    awk -v INS="    ${_line}" '
+      BEGIN { depth=0; inserted=0 }
+      {
+        line=$0
+        if (depth==1 && inserted==0 && line ~ /^[[:space:]]*index[[:space:]]+index\.html;[[:space:]]*$/) {
+          print line; print INS; inserted=1; next
+        }
+        if (depth==1 && inserted==0 && line ~ /^[[:space:]]*location[[:space:]]+/) {
+          print INS; inserted=1; print line; next
+        }
+        print line
+        open_cnt  = gsub(/{/,"&")
+        close_cnt = gsub(/}/,"&")
+        depth += open_cnt - close_cnt
+      }
+    ' "$_conf" > "$_tmp"
+
+    if ! grep -qE "^[[:space:]]*${_line//\//\\/}[[:space:]]*$" "$_tmp"; then
+      awk -v INS="    ${_line}" '
+        BEGIN{depth=0; done=0}
+        {
+          line=$0; print line
+          open_cnt  = gsub(/{/,"&"); close_cnt = gsub(/}/,"&")
+          next_depth = depth + open_cnt - close_cnt
+          if (!done && depth==1 && next_depth==0) { print INS; done=1 }
+          depth = next_depth
+        }
+      ' "$_tmp" > "${_tmp}.2" && mv "${_tmp}.2" "$_tmp"
+    fi
+    mv "$_tmp" "$_conf"
+  }
+
+  if [[ "$enable_public" -eq 1 ]]; then
+    sed -i '/^[[:space:]]*include[[:space:]]\+enable-php\.conf;[[:space:]]*$/d' "$conf_path"
+    echo "[download] 已移除 include enable-php.conf;（禁止 PHP 执行）"
+
+    insert_once "$conf_path" "include download.conf;"
+    echo "[download] 已确保 include download.conf;"
+  else
+    sed -i '/^[[:space:]]*include[[:space:]]\+download\.conf;[[:space:]]*$/d' "$conf_path"
+    echo "[download] 已移除 include download.conf;"
+
+    insert_once "$conf_path" "include enable-php.conf;"
+    echo "[download] 已确保 include enable-php.conf;"
+  fi
+
+  return 0
+}
+
+
+
+
 vhost() {
   is_lan
   if [[ "$IS_LAN" -eq 1 ]]; then
@@ -1622,7 +1648,9 @@ server{
         location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
     }
     
-    location ^~ /.well-known/ {allow all;}
+    location ^~ /.well-known/ { allow all; }
+    location ~ /\.(?!well-known) {deny all;}
+    include block.conf;
 
     access_log off;
 }
@@ -1685,7 +1713,9 @@ server{
         location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
     }
     
-    location ^~ /.well-known/ {allow all;}
+    location ^~ /.well-known/ { allow all; }
+    location ~ /\.(?!well-known) {deny all;}
+    include block.conf;
 
     location = /webdav {
         return 301 /webdav/;
@@ -1965,25 +1995,71 @@ EOF
   fi
 
   if [[ "$cert_success" -eq 1 ]]; then
-    webdav
+    download "$primary"
+    webdav "$primary"
   else
     echo "[vhost][INFO] 跳过 webdav（因未开启/未成功签发证书）。"
   fi
-
+  if /usr/local/nginx/sbin/nginx -t; then
+    /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx
+    echo "[vhost] Nginx 已重载。"
+  else
+    echo "[vhost][ERROR] nginx 配置检查失败。"; return 1
+  fi
   echo "[vhost] 完成。"
 }
 
 
 
 purge_nginx() {
-  echo "Purging NGINX (if any)..."
-  systemctl stop nginx 2>/dev/null || true
-  systemctl disable nginx 2>/dev/null || true
-  rm -f /etc/systemd/system/nginx.service
-  systemctl daemon-reload || true
+
+  local _errexit_was_on=0
+  if set -o | grep -qE '^errexit[[:space:]]+on$'; then
+    _errexit_was_on=1
+    set +e
+  fi
+
+  echo "Purging NGINX (continue no matter what)..."
+
+  systemctl stop nginx 2>/dev/null
+  systemctl disable nginx 2>/dev/null
+  service nginx stop 2>/dev/null
+
+
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -s quit 2>/dev/null
+    nginx -s stop 2>/dev/null
+  fi
+
+  sleep 1
+
+
+  pkill -9 -x nginx 2>/dev/null
+  killall -9 nginx 2>/dev/null
+
+
+  for p in 80 443; do
+    PIDS=$(lsof -t -i :"$p" 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+      kill -9 $PIDS 2>/dev/null
+    fi
+  done
+
+  rm -f /etc/systemd/system/nginx.service 2>/dev/null
+  systemctl daemon-reload 2>/dev/null
+
   rm -rf /root/.acme.sh /usr/local/nginx /etc/nginx /var/log/nginx /home/wwwlogs/nginx_error.log \
-         /usr/sbin/nginx /usr/bin/nginx  /usr/local/src/nginx-*
+         /usr/sbin/nginx /usr/bin/nginx  /usr/local/src/nginx-* 2>/dev/null
+
+
+  if [ "$_errexit_was_on" = "1" ]; then
+    set -e
+  fi
+
+  return 0
 }
+
+
 purge_php() {
   echo "Purging PHP (if any)..."
   systemctl stop php-fpm 2>/dev/null || true
@@ -2093,29 +2169,29 @@ purge_mariadb() {
 
 
 remove(){
-  purge_nginx
-  purge_php
-  purge_mariadb
+  purge_nginx || true
+  purge_php || true
+  purge_mariadb || true
   echo "nginx,php,mariadb已全部清理干净"
   exit 0
 
 }
 renginx(){
-  purge_nginx
+  purge_nginx || true
   echo "nginx已清理干净"
   exit 0
 
 }
 
 rephp(){
-  purge_php
+  purge_php || true
   echo "php已清理干净"
   exit 0
 
 }
 
 remariadb(){
-  purge_mariadb
+  purge_mariadb || true
   echo "mariadb已清理干净"
   exit 0
 
@@ -3253,9 +3329,9 @@ select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
     "不安装php") php_version='0'; break ;;
     "php8.2") php_version='8.2.30'; break ;;
-    "php8.3") php_version='8.3.29'; break ;;
-    "php8.4") php_version='8.4.16'; break ;;
-    "php8.5") php_version='8.5.0'; break ;;
+    "php8.3") php_version='8.3.30'; break ;;
+    "php8.4") php_version='8.4.17'; break ;;
+    "php8.5") php_version='8.5.2'; break ;;
     *) echo "无效选项 $REPLY";;
   esac
 done
@@ -3315,7 +3391,7 @@ ensure_user  www www
 
 if [ "$php_version" != "0" ]; then
   cd "$WNMPDIR"
-  purge_php
+  purge_php || true
   php_tar="php-$php_version.tar.gz"
   php_dir="php-$php_version"
   
@@ -3633,7 +3709,7 @@ fi
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-    purge_nginx
+    purge_nginx || true
     cd "$WNMPDIR"
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
@@ -3747,19 +3823,505 @@ EOF
 
     mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
 
+cat <<'EOF' >  /usr/local/nginx/block.conf
+location ~* ^/(wp|wordpress|blog)/ { return 444; }
+location ~* ^/wp-admin { return 444; }
+location ~* ^/wp-login\.php$ { return 444; }
+location ~* ^/wp-config\.php$ { return 444; }
+location ~* ^/xmlrpc\.php$ { return 444; }
+location ~* ^/wp-(content|includes)/ { return 444; }
+
+
+location ~* ^/\.(git|svn|hg|bzr)(/|$) { return 444; }
+location ~* ^/\.DS_Store$ { return 444; }
+location ~* ^/\.(env|env\..*|htaccess|htpasswd)$ { return 444; }
+location ~* ^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml)$ { return 444; }
+
+
+location ~* \.(bak|old|orig|save|swp|swo|tmp|temp)$ { return 444; }
+location ~* \.(zip|tar|gz|tgz|7z|rar|sql|sqlite|dump)$ { return 444; }
+location ~* ^/(backup|backups|bak|dump|dumps|sql|db|database)(/|$) { return 444; }
+
+
+location ~* ^/(phpinfo\.php|info\.php|test\.php|_debug|debug)(/|$) { return 444; }
+location ~* ^/(install|installer|setup|configure)(/|$) { return 444; }
+
+
+
+location ~* ^/vendor/phpunit/ { return 444; }
+location ~* ^/phpunit(\.xml|\.xml\.dist)?$ { return 444; }
+location ~* ^/storage/ { return 444; }
+location ~* ^/public/storage/ { return 444; }
+location ~* ^/runtime/ { return 444; }
+location ~* ^/bootstrap/cache/ { return 444; }
+
+
+location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57)\.php$ { return 444; }
+location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) { return 444; }
+
+
+location ~* ^/(crossdomain\.xml|clientaccesspolicy\.xml)$ { return 444; }
+location ~* ^/(sitemap\.xml(\.gz)?|robots\.txt)$ { }  # keep normal if you have them
+
+
+if ($request_uri ~* "\.\./") { return 444; }
+if ($request_uri ~* "%2e%2e%2f") { return 444; }
+
+EOF
+
+cat <<'EOF' >  /usr/local/nginx/download.html
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Download</title>
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root{
+      --bg: #0b1220;
+      --card:#0f1a2e;
+      --card2:#0c1527;
+      --text:#e6eefc;
+      --muted:#9bb0d1;
+      --line: rgba(255,255,255,.08);
+      --accent:#4da3ff;
+      --good:#34d399;
+      --warn:#fbbf24;
+      --shadow: 0 12px 30px rgba(0,0,0,.35);
+      --radius:18px;
+    }
+    @media (prefers-color-scheme: light){
+      :root{
+        --bg:#f6f8fc;
+        --card:#ffffff;
+        --card2:#f7f9ff;
+        --text:#0f172a;
+        --muted:#64748b;
+        --line: rgba(15,23,42,.10);
+        --accent:#2563eb;
+        --shadow: 0 12px 30px rgba(15,23,42,.10);
+      }
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(900px 600px at 10% 0%, rgba(77,163,255,.18), transparent 60%),
+                  radial-gradient(900px 600px at 100% 20%, rgba(52,211,153,.14), transparent 55%),
+                  var(--bg);
+      background-repeat: no-repeat;
+      color: var(--text);
+    }
+    a{color:inherit;text-decoration:none}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 44px}
+    .topbar{
+      display:flex;gap:12px;align-items:center;justify-content:space-between;
+      padding:14px 16px;border:1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklab, var(--card) 92%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+    .brand{display:flex;gap:10px;align-items:center;min-width:0}
+    .logo{
+      width:38px;height:38px;border-radius:14px;
+      background: linear-gradient(135deg, rgba(77,163,255,.95), rgba(52,211,153,.85));
+      box-shadow: 0 10px 22px rgba(77,163,255,.18);
+      position:relative;flex:0 0 auto;
+    }
+    .logo:after{
+      content:"";position:absolute;inset:9px;border-radius:10px;
+      background: rgba(255,255,255,.18);
+      border:1px solid rgba(255,255,255,.18);
+    }
+    .title{display:flex;flex-direction:column;min-width:0}
+    .title b{font-size:14px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .title span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .actions{display:flex;gap:10px;align-items:center;flex:0 0 auto}
+    .btn{
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 85%, transparent);
+      color: var(--text);
+      padding:10px 12px;border-radius:14px;
+      font-size:13px;cursor:pointer;
+      display:inline-flex;gap:8px;align-items:center;
+      transition: transform .12s ease, border-color .12s ease;
+      user-select:none;
+    }
+    .btn:hover{transform: translateY(-1px); border-color: color-mix(in oklab, var(--accent) 50%, var(--line))}
+    .btn:active{transform: translateY(0)}
+    .btn .dot{
+      width:8px;height:8px;border-radius:99px;background: var(--accent);
+      box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 20%, transparent);
+    }
+    .grid{display:grid;grid-template-columns: 1fr;gap:14px;}
+    .panel{
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklab, var(--card) 92%, transparent);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .panel-hd{
+      padding:14px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between;
+      border-bottom:1px solid var(--line);
+    }
+    .crumbs{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
+    .crumb{
+      display:inline-flex;gap:6px;align-items:center;
+      padding:8px 10px;border-radius:12px;
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 86%, transparent);
+      font-size:13px;max-width:100%;
+    }
+    .crumb:hover{border-color: color-mix(in oklab, var(--accent) 45%, var(--line))}
+    .crumb .sep{opacity:.55}
+    .search{
+      display:flex;align-items:center;gap:10px;
+      padding:10px 12px;border-radius:14px;
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 86%, transparent);
+      min-width:260px;max-width:420px;width:40%;
+    }
+    .search input{
+      width:100%;border:none;outline:none;
+      background:transparent;color:var(--text);font-size:13px;
+    }
+    .search input::placeholder{color: color-mix(in oklab, var(--muted) 90%, transparent)}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{
+      padding:12px 14px;border-bottom:1px solid var(--line);
+      text-align:left;font-size:13px;
+    }
+    .table th{color:var(--muted);font-weight:600}
+    .row{
+      display:flex;align-items:center;gap:12px;min-width:0;
+    }
+    .icon{
+      width:36px;height:36px;border-radius:14px;
+      display:grid;place-items:center;
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 88%, transparent);
+      flex:0 0 auto;
+    }
+    .name{min-width:0; max-width: 70dvw}
+    .name b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .name span{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+    .op{
+      padding:8px 10px;border-radius:12px;border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 88%, transparent);
+      cursor:pointer;font-size:12px;color:var(--text);
+    }
+    .op:hover{border-color: color-mix(in oklab, var(--accent) 45%, var(--line))}
+   
+    .muted{color:var(--muted)}
+    .muted.last{display: flex; justify-content: space-between; align-items: center;}
+    .empty{padding:22px 16px;color:var(--muted);text-align:center}
+    .toast{
+      position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+      background: color-mix(in oklab, var(--card) 92%, transparent);
+      border:1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding:10px 12px;border-radius:14px;
+      font-size:13px;display:none;gap:8px;align-items:center;
+      backdrop-filter: blur(10px);
+    }
+    .toast.show{display:inline-flex}
+    .toast .dot{width:8px;height:8px;border-radius:99px;background:var(--good)}
+    .copyright{display: flex; justify-content: center; color: #555; line-height: 1.5; font-size: 12px; margin: 5px 0}
+    @media (max-width:720px){
+      .wrap{padding:10px 5px}
+      .table th{display: none}
+      .table tr{display: block; margin: 10px 0; padding: 0 10px}
+      .table td{
+
+        display: flex;
+        padding:5px 0;
+        line-height: 1.5;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .table td:first-child:before{display: block; content: '名称'}
+      .table td:nth-child(2):before{display: block; content: '大小'}
+      .table td:last-child:before{display: block; content: '日期'}
+      .search{min-width:0;width:100%;max-width:none}
+      .panel-hd{flex-direction:column;align-items:stretch}
+      .actions{display:none}
+      
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div class="title">
+          <b id="pageTitle">Downloads</b>
+          <span id="pageSub">/</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btnReload"><span class="dot"></span>刷新</button>
+        <button class="btn" id="btnCopyPath">复制当前路径</button>
+      </div>
+    </div>
+    <div class="copyright"><small>本服务器由 <a href="https://wnmp.org" target="_blank" rel="noopener">wnmp.org</a> 一键包构建 </small></div>
+    <div class="grid">
+      <div class="panel">
+        <div class="panel-hd">
+          <div class="crumbs" id="crumbs"></div>
+          <div class="search">
+            <span class="muted">🔎</span>
+            <input id="q" placeholder="搜索文件名…（支持模糊匹配）" />
+          </div>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width:58%">名称</th>
+              <th>大小</th>
+              <th>修改时间</th>
+              
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="3" class="empty">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"><span class="dot"></span><span id="toastText">已复制</span></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+
+  const tbody = $("#tbody");
+  const crumbs = $("#crumbs");
+  const q = $("#q");
+  const pageSub = $("#pageSub");
+  const pageTitle = $("#pageTitle");
+  const toast = $("#toast");
+  const toastText = $("#toastText");
+
+  function showToast(msg){
+    toastText.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove("show"), 1400);
+  }
+
+  function fmtSize(n){
+    if (n == null || n === "") return "-";
+    const x = Number(n);
+    if (!isFinite(x)) return "-";
+    const u = ["B","KB","MB","GB","TB"];
+    let i=0, v=x;
+    while (v>=1024 && i<u.length-1){ v/=1024; i++; }
+    return (i===0 ? v.toFixed(0) : v.toFixed(2).replace(/\.00$/,"")) + " " + u[i];
+  }
+
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function currentDirPath(){
+
+    let p = decodeURIComponent(location.pathname || "/");
+    if (!p.endsWith("/")) {
+
+      p = p.substring(0, p.lastIndexOf("/") + 1) || "/";
+    }
+    return p;
+  }
+
+  function buildCrumbs(p){
+    crumbs.innerHTML = "";
+    const parts = p.split("/").filter(Boolean);
+    const items = [{name:"root", path:"/"}];
+    let acc = "/";
+    for (const seg of parts){
+      acc += seg + "/";
+      items.push({name: seg, path: acc});
+    }
+    items.forEach((it, idx) => {
+      const a = document.createElement("a");
+      a.className = "crumb";
+      a.href = it.path;
+      a.innerHTML = idx===0 ? "🏠 <span class='muted'>/</span>" : `${esc(it.name)} <span class="sep">/</span>`;
+      crumbs.appendChild(a);
+    });
+  }
+
+  async function load(){
+    const dir = currentDirPath();
+    pageSub.textContent = dir;
+    pageTitle.textContent = "Downloads";
+    buildCrumbs(dir);
+
+ 
+    const api = "/api/list" + dir;
+
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">加载中…</td></tr>`;
+    let data;
+    try{
+      const res = await fetch(api, {cache:"no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      data = await res.json();
+    }catch(e){
+      tbody.innerHTML = `<tr><td colspan="4" class="empty">加载失败：${esc(e.message || e)}<br><span class="muted">请检查 Nginx 是否已开启 /api/list/ 的 autoindex_format json</span></td></tr>`;
+      return;
+    }
+
+   
+    let list = Array.isArray(data) ? data.slice() : [];
+
+   
+    list.sort((a,b) => {
+      const ad = (a.type === "directory") ? 0 : 1;
+      const bd = (b.type === "directory") ? 0 : 1;
+      if (ad !== bd) return ad - bd;
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+    render(list, q.value.trim());
+  }
+
+  function render(list, keyword){
+    const dir = currentDirPath();
+    let filtered = list;
+
+    if (keyword){
+      const k = keyword.toLowerCase();
+      filtered = list.filter(x => String(x.name || "").toLowerCase().includes(k));
+    }
+
+    if (!filtered.length){
+      tbody.innerHTML = `<tr><td colspan="4" class="empty">空目录 / 没有匹配项</td></tr>`;
+      return;
+    }
+
+    const rows = filtered.map(it => {
+      const name = it.name || "";
+      const isDir = it.type === "directory";
+      const href = isDir ? (dir + name.replace(/\/?$/,"/")) : (dir + name);
+      const size = isDir ? "-" : fmtSize(it.size);
+      const mtime = it.mtime ? new Date(it.mtime).toLocaleString() : "-";
+      const icon = isDir ? "📁" : "📄";
+      return `
+        <tr>
+          <td>
+            <a href="${esc(href)}">
+              <div class="row">
+                <div class="icon" aria-hidden="true">${icon}</div>
+                <div class="name">
+                  <b title="${esc(name)}">${esc(name)}</b>
+                  
+                </div>
+              </div>
+            </a>
+          </td>
+          <td class="muted">${esc(size)}</td>
+          <td class="muted last">${esc(mtime)}<button class="op" data-copy="${esc(location.origin + href)}">复制</button></td>
+          
+        </tr>
+      `;
+    }).join("");
+
+    tbody.innerHTML = rows;
+
+    tbody.querySelectorAll("[data-copy]").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        const text = e.currentTarget.getAttribute("data-copy");
+        const ta = document.createElement("textarea");
+          ta.value = text; 
+          document.body.appendChild(ta);
+          ta.select(); document.execCommand("copy");
+          ta.remove();
+          showToast("已复制链接");
+      });
+    });
+  }
+
+  $("#btnReload")?.addEventListener("click", load);
+  $("#btnCopyPath")?.addEventListener("click", async () => {
+    const dir = location.origin + currentDirPath();
+    try{
+      await navigator.clipboard.writeText(dir);
+      showToast("已复制当前路径");
+    }catch{
+      showToast("复制失败（权限限制）");
+    }
+  });
+
+  q.addEventListener("input", async () => {
+    const dir = currentDirPath();
+    const api = "/api/list" + dir;
+    try{
+      const res = await fetch(api, {cache:"no-store"});
+      const data = await res.json();
+      const list = Array.isArray(data) ? data.slice() : [];
+      list.sort((a,b) => ((a.type==="directory")?0:1)-((b.type==="directory")?0:1) || String(a.name).localeCompare(String(b.name)));
+      render(list, q.value.trim());
+    }catch{
+      
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
+
+
+EOF
 
 cat <<'EOF' >  /usr/local/nginx/download.conf
-
 types { }
 default_type application/octet-stream;
-autoindex on;            
-autoindex_exact_size off;    
-autoindex_localtime on;      
-charset utf-8; 
+
+charset utf-8;
 sendfile on;
 aio on;
 directio 4m;
-output_buffers 1 512k;           
+output_buffers 1 512k;
+
+location = / {
+    default_type text/html;
+    add_header Content-Type "text/html; charset=utf-8" always;
+    root /usr/local/nginx;
+    try_files /download.html =404;
+}
+
+
+location ~ ^/.*/$ {
+    default_type text/html;
+    add_header Content-Type "text/html; charset=utf-8" always;
+    root /usr/local/nginx;
+    try_files /download.html =404;
+}
+
+location ^~ /api/list/ {
+    root $dl_site_root;
+
+    autoindex on;
+    autoindex_format json;
+    autoindex_exact_size off;
+    autoindex_localtime on;
+
+    default_type application/json;
+    add_header Cache-Control "no-store" always;
+
+    rewrite ^/api/list/(.*)$ /$1 break;
+}
+
+
 location ~* \.html?$ {
     default_type application/octet-stream;
     add_header Content-Disposition "attachment" always;
@@ -3773,6 +4335,7 @@ location ~* \.php?$ {
     add_header X-Content-Type-Options "nosniff" always;
     try_files /404.html =404;
 }
+
 EOF
 
 cat <<'EOF' >  /usr/local/nginx/html/403.html
@@ -3835,7 +4398,7 @@ cat <<'EOF' >  /usr/local/nginx/html/403.html
     <h1>403</h1>
     <p>抱歉，您没有权限访问此页面。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用wnmp.org的一键安装包搭建而成。</p>
+    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用<a style="color:#555" href="https://www.wnmp.org" target="_blank">wnmp.org</a>的一键安装包搭建而成。</p>
   </div>
 </body>
 </html>
@@ -3902,7 +4465,7 @@ cat <<'EOF' >  /usr/local/nginx/html/404.html
     <h1>404</h1>
     <p>请求的资源无法在此服务器上找到。</p>
     <p style="font-size:0.9rem;opacity:0.7;">nginx</p>
-    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用wnmp.org的一键安装包搭建而成。</p>
+    <p style="font-size:0.9rem;opacity:0.7;">该服务器使用<a style="color:#555" href="https://www.wnmp.org" target="_blank">wnmp.org</a>的一键安装包搭建而成。</p>
   </div>
 </body>
 </html>
@@ -4061,9 +4624,9 @@ http {
             access_log off;
         }
         location ^~ /.well-known/ { allow all; }
-        location ~ /\.(?!well-known) {
-            deny all;
-        }
+        location ~ /\.(?!well-known) {deny all;}
+        include block.conf;
+
         location = /phpmyadmin {
             return 301 /phpmyadmin/;
         }
@@ -4099,7 +4662,10 @@ events {
 }
 
 http {
-
+    map $host $dl_site_root {
+        default                 /home/wwwroot/$host;
+        ~^www\.(?<d>.+)$        /home/wwwroot/$d;
+    }
     include       mime.types;
     default_type  application/octet-stream;
     dav_ext_lock_zone zone=webdav_locks:10m;
@@ -4208,9 +4774,8 @@ http {
             access_log off;
         }
         location ^~ /.well-known/ { allow all; }
-        location ~ /\.(?!well-known) {
-            deny all;
-        }
+        location ~ /\.(?!well-known) {deny all;}
+        include block.conf;
         location = /phpmyadmin {
             return 301 /phpmyadmin/;
         }
@@ -4236,6 +4801,11 @@ fi
     systemctl daemon-reload
     systemctl enable nginx
     systemctl start nginx
+
+    if [ ! -x /usr/bin/nginx ]; then
+        ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx
+    fi
+    
     wnmp_sslcheck
     ;;
   n|N|no|NO|No)
@@ -4248,7 +4818,7 @@ fi
 esac
 
 if [ "$mariadb_version" != "0" ]; then
-  purge_mariadb
+  purge_mariadb || true
 
   cd "$WNMPDIR"
 
