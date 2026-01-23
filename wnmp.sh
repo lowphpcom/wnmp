@@ -4037,9 +4037,9 @@ cat <<'EOF' >  /usr/local/nginx/download.html
         justify-content: space-between;
         align-items: center;
       }
-      .table td:first-child:before{display: block; content: '名称'}
-      .table td:nth-child(2):before{display: block; content: '大小'}
-      .table td:last-child:before{display: block; content: '日期'}
+      .table td:first-child:before{display: block; content: 'Name'}
+      .table td:nth-child(2):before{display: block; content: 'Size'}
+      .table td:last-child:before{display: block; content: 'Modified on'}
       .search{min-width:0;width:100%;max-width:none}
       .panel-hd{flex-direction:column;align-items:stretch}
       .actions{display:none}
