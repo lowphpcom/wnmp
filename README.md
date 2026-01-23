@@ -38,6 +38,10 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.36 Provides UI support for Nginx open directory clean download sites. It is not an additional program but a UI enhancement for Nginx autoindex. Simply execute `wnmp vhost` and select [yes] for the open directory option to experience it. Demo:[bb.wnmp.org](https://bb.wnmp.org)
+
+v1.35 Added block.conf to default block common botnet scan requests, keeping Nginx logs cleaner. Added Nginx global variables so other scripts can properly detect the Nginx environment!
+
 v1.34 Added custom SSL check cron tasks `wnmp sslcheck` and `wnmp ssltest` to replace the default `acme.sh` cron job. These enable intelligent certificate renewal for short-lived domain and IP certificates. The official ACME renewal script fails to recognize the 6-day validity period for IP certificates and cannot automatically restart Nginx, resulting in failed IP certificate renewals.
 
 v1.33 Added `wnmp devssl` self-signed certificate, suitable for local development environments on Windows 11 WSL subsystem to handle HTTPS requests.
