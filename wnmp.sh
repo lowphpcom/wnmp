@@ -3324,9 +3324,9 @@ select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; 
   case $phpselcect in
     "Do not install PHP") php_version='0'; break ;;
     "php8.2") php_version='8.2.30'; break ;;
-    "php8.3") php_version='8.3.29'; break ;;
-    "php8.4") php_version='8.4.16'; break ;;
-    "php8.5") php_version='8.5.0'; break ;;
+    "php8.3") php_version='8.3.30'; break ;;
+    "php8.4") php_version='8.4.17'; break ;;
+    "php8.5") php_version='8.5.2'; break ;;
     *) echo "Invalid option $REPLY";;
   esac
 done
