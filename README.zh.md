@@ -34,6 +34,10 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.36 提供nginx 开放目录纯净下载站点UI支持，它不是额外程序，而是nginx autoindex 的UI 增强，只需要执行 `wnmp vhost` 是否公开目录选择[yes] 就可以体验。演示：[bb.lowphp.com](https://bb.lowphp.com)
+
+v1.35 新增 block.conf 默认屏蔽僵尸网络扫描常见漏洞程序请求，让nginx日志更干净。加入NGINX全局变量，其他脚本程序可正常检查到NGINX环境！
+
 v1.34 新增 `wnmp sslcheck`,`wnmp ssltest` 自定义的sslcheck cron任务替换acme.sh默认cron任务，为域名和IP短效证书启用智能证书续期功能。acme官方续签脚本无法识别IP证书6天有效期，并无法自动重启nginx，导致IP证书续签失败
 
 v1.33 加入 `wnmp devssl` 自签证书，适合Win11-WSL子系统本地开发环境走HTTPS请求
