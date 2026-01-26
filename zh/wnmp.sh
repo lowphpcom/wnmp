@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.36
+# Version: 1.37
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.36"
+green  " [init] Version: 1.37"
 green  "============================================================"
 echo
 sleep 1
@@ -87,6 +87,7 @@ usage() {
   wnmp devssl        # 自签证书
   wnmp sslcheck      # 安装证书续签脚本
   wnmp ssltest       # 执行ssl检测
+  wnmp cf            # 安装cloudflare 真实IP更新任务
   wnmp -h|--help     # 查看帮助
 USAGE
 }
@@ -1611,7 +1612,7 @@ server{
     server_name example;
     root  /home/wwwroot/default;
     index index.html index.php;
-
+    include block.conf;
     error_page 403 =403 @e403;
 
     location @e403 {
@@ -1650,7 +1651,6 @@ server{
     
     location ^~ /.well-known/ { allow all; }
     location ~ /\.(?!well-known) {deny all;}
-    include block.conf;
 
     access_log off;
 }
@@ -1665,7 +1665,7 @@ server{
     server_name example;
     root  /home/wwwroot/default;
     index index.html index.php;
-
+    include block.conf;
     error_page 403 =403 @e403;
 
     location @e403 {
@@ -1715,7 +1715,6 @@ server{
     
     location ^~ /.well-known/ { allow all; }
     location ~ /\.(?!well-known) {deny all;}
-    include block.conf;
 
     location = /webdav {
         return 301 /webdav/;
@@ -2000,6 +1999,19 @@ EOF
   else
     echo "[vhost][INFO] 跳过 webdav（因未开启/未成功签发证书）。"
   fi
+
+
+  mkdir -p /home/wwwlogs
+
+  if grep -qE '^[[:space:]]*access_log[[:space:]]+off;[[:space:]]*$' "$conf"; then
+    tac "$conf" | sed "0,/^[[:space:]]*access_log[[:space:]]\\+off;[[:space:]]*$/s//    access_log \\/home\\/wwwlogs\\/${primary}.log;/" | tac > "$conf.tmp" \
+      && mv "$conf.tmp" "$conf"
+  fi
+
+
+
+
+  
   if /usr/local/nginx/sbin/nginx -t; then
     /usr/local/nginx/sbin/nginx -s reload || systemctl reload nginx
     echo "[vhost] Nginx 已重载。"
@@ -2864,6 +2876,56 @@ ensure_user() {
   fi
 }
 
+cf() {
+  set -e
+
+  local OUT="/usr/local/nginx/cloudflare-ips.conf"
+  local BIN="/usr/local/bin/wnmp_cf"
+  local CRON_MARK="# wnmp:cloudflare-realip"
+  local CRON_LINE="17 0 * * * /usr/local/bin/wnmp_cf >/dev/null 2>&1 ${CRON_MARK}"
+
+  echo "[wnmp_cf] Installing/updating ${BIN} ..."
+
+  install -d -m 755 /usr/local/bin /usr/local/nginx
+  cat > "${BIN}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUT="/usr/local/nginx/cloudflare-ips.conf"
+LOCK="/var/lock/wnmp_cf.lock"
+
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
+TMP="$(mktemp)"
+cleanup(){ rm -f "$TMP"; }
+trap cleanup EXIT
+
+{
+  echo "# Cloudflare IP ranges - auto generated"
+  curl -fsSL https://www.cloudflare.com/ips-v4 | sed 's/^/set_real_ip_from /; s/$/;/'
+  curl -fsSL https://www.cloudflare.com/ips-v6 | sed 's/^/set_real_ip_from /; s/$/;/'
+} > "$TMP"
+
+if ! cmp -s "$TMP" "$OUT"; then
+  install -m 644 "$TMP" "$OUT"
+  systemctl reload nginx
+fi
+EOF
+  chmod +x "${BIN}"
+  echo "[wnmp_cf] Ensuring crontab entry (daily 00:17) ..."
+  local tmpcron
+  tmpcron="$(mktemp)"
+
+  ( crontab -l 2>/dev/null || true ) \
+    | grep -vF "${CRON_MARK}" \
+    > "$tmpcron"
+  echo "${CRON_LINE}" >> "$tmpcron"
+  crontab "$tmpcron"
+  rm -f "$tmpcron"
+
+}
+
 wnmp_sslcheck() {
     local ACME_HOME="/root/.acme.sh"
     local SSL_CHECK="$ACME_HOME/sslcheck"
@@ -2883,8 +2945,8 @@ set -u
 dir_path="/root/.acme.sh"
 acme_bin="/root/.acme.sh/acme.sh"
 
-THRESH_IP_DAYS=2
-THRESH_DOMAIN_DAYS=3
+THRESH_IP_DAYS=1
+THRESH_DOMAIN_DAYS=1
 
 SSL_BASE="/usr/local/nginx/ssl"
 IP_SSL_DIR="$SSL_BASE/default"
@@ -3240,6 +3302,7 @@ for arg in "$@"; do
      devssl) devssl; exit 0 ;;
      sslcheck) wnmp_sslcheck; exit 0 ;;
      ssltest) wnmp_ssltest; exit 0 ;;
+     cf) cf; exit 0 ;;
      "") ;;
      *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
    esac
@@ -3374,7 +3437,7 @@ if [[ "$IS_LAN" -eq 1 ]]; then
 apt --fix-broken install -y
 apt autoremove -y
 apt update
-apt install -y libc-ares-dev apache2-utils git liblzma-dev libedit-dev libncurses5-dev libnuma-dev libaio-dev libsnappy-dev libicu-dev liblz4-dev screen build-essential liburing-dev liburing2 \
+apt install -y net-tools libc-ares-dev apache2-utils git liblzma-dev libedit-dev libncurses5-dev libnuma-dev libaio-dev libsnappy-dev libicu-dev liblz4-dev screen build-essential liburing-dev liburing2 \
   libzstd-dev wget curl m4 autoconf re2c pkg-config libxml2-dev libsodium-dev libcurl4-openssl-dev \
   libbz2-dev openssl libssl-dev libtidy-dev libxslt1-dev libsqlite3-dev zlib1g-dev \
   libpng-dev libjpeg-dev libwebp-dev libonig-dev libzip-dev libpcre2-8-0 libpcre2-dev \
@@ -3823,50 +3886,61 @@ EOF
 
     mkdir -p /usr/local/nginx/rewrite /usr/local/nginx/ssl/default /usr/local/nginx/vhost
 
+cat <<'EOF' >  /usr/local/nginx/cloudflare-ips.conf
+# Cloudflare IP ranges - auto generated
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+EOF
+
 cat <<'EOF' >  /usr/local/nginx/block.conf
-location ~* ^/(wp|wordpress|blog)/ { return 444; }
-location ~* ^/wp-admin { return 444; }
-location ~* ^/wp-login\.php$ { return 444; }
-location ~* ^/wp-config\.php$ { return 444; }
-location ~* ^/xmlrpc\.php$ { return 444; }
-location ~* ^/wp-(content|includes)/ { return 444; }
+if ($request_uri ~ "^//+") { return 444; }
+location ~* /wp-(admin|includes|content)/ { access_log off; return 444; }
+location ~* /(wp-login\.php|xmlrpc\.php|wlwmanifest\.xml)$ { access_log off; return 444; }
 
+location ~* ^/\.(git|svn|hg|bzr)(/|$) {access_log off; return 444; }
+location ~* ^/\.DS_Store$ {access_log off; return 444; }
+location ~* ^/\.(env|env\..*|htaccess|htpasswd)$ {access_log off; return 444; }
+location ~* ^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml)$ {access_log off; return 444; }
 
-location ~* ^/\.(git|svn|hg|bzr)(/|$) { return 444; }
-location ~* ^/\.DS_Store$ { return 444; }
-location ~* ^/\.(env|env\..*|htaccess|htpasswd)$ { return 444; }
-location ~* ^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml)$ { return 444; }
+location ~* \.(bak|old|orig|save|swp|swo|tmp|temp)$ {access_log off; return 444; }
+location ~* \.(sql|sqlite|dump)$ {access_log off; return 444; }
+location ~* ^/(backup|backups|bak|dump|dumps|sql|db|database)(/|$) {access_log off; return 444; }
 
+location ~* ^/(phpinfo\.php|info\.php|test\.php|_debug|debug)(/|$) {access_log off; return 444; }
+location ~* ^/(install|installer|setup|configure)(/|$) {access_log off; return 444; }
 
-location ~* \.(bak|old|orig|save|swp|swo|tmp|temp)$ { return 444; }
-location ~* \.(zip|tar|gz|tgz|7z|rar|sql|sqlite|dump)$ { return 444; }
-location ~* ^/(backup|backups|bak|dump|dumps|sql|db|database)(/|$) { return 444; }
+location ~* ^/vendor/phpunit/ {access_log off; return 444; }
+location ~* ^/phpunit(\.xml|\.xml\.dist)?$ {access_log off; return 444; }
+location ~* ^/storage/ {access_log off; return 444; }
+location ~* ^/public/storage/ {access_log off; return 444; }
+location ~* ^/runtime/ {access_log off; return 444; }
+location ~* ^/bootstrap/cache/ {access_log off; return 444; }
 
+location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57)\.php$ {access_log off; return 444; }
+location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) {access_log off; return 444; }
+location ~* ^/(crossdomain\.xml|clientaccesspolicy\.xml)$ {access_log off; return 444; }
 
-location ~* ^/(phpinfo\.php|info\.php|test\.php|_debug|debug)(/|$) { return 444; }
-location ~* ^/(install|installer|setup|configure)(/|$) { return 444; }
-
-
-
-location ~* ^/vendor/phpunit/ { return 444; }
-location ~* ^/phpunit(\.xml|\.xml\.dist)?$ { return 444; }
-location ~* ^/storage/ { return 444; }
-location ~* ^/public/storage/ { return 444; }
-location ~* ^/runtime/ { return 444; }
-location ~* ^/bootstrap/cache/ { return 444; }
-
-
-location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57)\.php$ { return 444; }
-location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) { return 444; }
-
-
-location ~* ^/(crossdomain\.xml|clientaccesspolicy\.xml)$ { return 444; }
-location ~* ^/(sitemap\.xml(\.gz)?|robots\.txt)$ { }  # keep normal if you have them
-
-
-if ($request_uri ~* "\.\./") { return 444; }
-if ($request_uri ~* "%2e%2e%2f") { return 444; }
-
+location ~* \.\./ { access_log off; return 444; }
+location ~* %2e%2e%2f { access_log off; return 444; }
 EOF
 
 cat <<'EOF' >  /usr/local/nginx/download.html
@@ -4547,7 +4621,8 @@ http {
     client_body_timeout   1800s;
     send_timeout          1800s;
 
-
+    include cloudflare-ips.conf;
+    real_ip_header CF-Connecting-IP;
     real_ip_recursive on;
 
     gzip on;
@@ -4576,6 +4651,15 @@ http {
 
     server_tokens off;
 
+    log_format main '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+    map $status $log_ok {
+        default 1;
+        301     0;
+        444     0;
+    }
+
     upstream lowphp {
         server unix:/tmp/lowphp.sock;
         keepalive 100000;
@@ -4587,7 +4671,7 @@ http {
         server_name _;
         root  /home/wwwroot/default;
         index index.html index.php;
-
+        include block.conf;
         error_page 403 =403 @e403;
 
         location @e403 {
@@ -4625,8 +4709,7 @@ http {
         }
         location ^~ /.well-known/ { allow all; }
         location ~ /\.(?!well-known) {deny all;}
-        include block.conf;
-
+        
         location = /phpmyadmin {
             return 301 /phpmyadmin/;
         }
@@ -4685,8 +4768,8 @@ http {
     client_body_timeout   1800s;
     send_timeout          1800s;
 
-
-   
+    include cloudflare-ips.conf;
+    real_ip_header CF-Connecting-IP;
     real_ip_recursive on;
 
     gzip on;
@@ -4715,6 +4798,15 @@ http {
 
     server_tokens off;
 
+    log_format main '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+    map $status $log_ok {
+        default 1;
+        301     0;
+        444     0;
+    }
+
     upstream lowphp {
         server unix:/tmp/lowphp.sock;
         keepalive 100000;
@@ -4731,6 +4823,7 @@ http {
         }
         root  /home/wwwroot/default;
         index index.html index.php;
+        include block.conf;
         error_page 403 =403 @e403;
 
         location @e403 {
@@ -4775,7 +4868,7 @@ http {
         }
         location ^~ /.well-known/ { allow all; }
         location ~ /\.(?!well-known) {deny all;}
-        include block.conf;
+
         location = /phpmyadmin {
             return 301 /phpmyadmin/;
         }
@@ -4807,6 +4900,7 @@ fi
     fi
     
     wnmp_sslcheck
+    cf
     ;;
   n|N|no|NO|No)
     echo "您选择了'否'，跳过nginx安装..."
