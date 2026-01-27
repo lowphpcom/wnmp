@@ -1419,6 +1419,9 @@ devssl() {
   local ssl_dir="/usr/local/nginx/ssl/${primary}"
 
   mkdir -p "$ssl_dir"
+  if [[ -n "$ssl_dir" && "$ssl_dir" != "/" && -d "$ssl_dir" ]]; then
+    rm -rf "${ssl_dir:?}/"*
+  fi
   cd "$ssl_dir"
 
   echo
@@ -2000,7 +2003,7 @@ EOF
   mkdir -p /home/wwwlogs
 
   if grep -qE '^[[:space:]]*access_log[[:space:]]+off;[[:space:]]*$' "$conf"; then
-    tac "$conf" | sed "0,/^[[:space:]]*access_log[[:space:]]\\+off;[[:space:]]*$/s//    access_log \\/home\\/wwwlogs\\/${primary}.log;/" | tac > "$conf.tmp" \
+    tac "$conf" | sed "0,/^[[:space:]]*access_log[[:space:]]\\+off;[[:space:]]*$/s//    access_log \/home\/wwwlogs\/${primary}.log main if=\$log_ok;/" | tac > "$conf.tmp" \
       && mv "$conf.tmp" "$conf"
   fi
 
