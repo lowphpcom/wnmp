@@ -4846,13 +4846,14 @@ http {
         }
         ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
         ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
-        ssl_trusted_certificate /usr/local/nginx/ssl/default/ca.pem;
-        ssl_session_cache   shared:SSL:20m;
+        
         ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
-        ssl_prefer_server_ciphers off;
-        ssl_session_timeout 1d;
-        ssl_session_tickets off;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers on;
+        ssl_session_timeout 10m;
+        ssl_stapling off;
+        ssl_stapling_verify off;
+        
         autoindex_exact_size off;
         autoindex_localtime on;
         include enable-php.conf;
