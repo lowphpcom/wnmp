@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.37
+# Version: 1.38
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.37"
+green  " [init] Version: 1.38"
 green  "============================================================"
 echo
 sleep 1
@@ -1182,7 +1182,6 @@ webdav() {
   local user pass passwd_file ans
 
   if [[ -z "$domain" ]]; then
-    echo "[webdav][ERROR] domain 为空。用法：webdav <domain> （或在 vhost() 中先设置 domain 变量后直接调用 webdav）"
     return 1
   fi
 
@@ -1213,7 +1212,7 @@ webdav() {
   elif [[ -x /usr/sbin/nginx ]]; then
     NGINX_BIN="/usr/sbin/nginx"
   else
-    echo "[webdav][ERROR] 未找到 nginx 可执行文件；建议 ln -s /usr/local/nginx/sbin/nginx /usr/bin/nginx"
+    echo "[webdav][ERROR] 未找到 nginx 可执行文件."
     return 1
   fi
 
@@ -1282,45 +1281,78 @@ _wnmp_pick_best_ipv4() {
 }
 
 _wnmp_nginx_inject_after_server_name() {
+  local conf="$1"
+  local snip="$2"
+  local tmp_snip tmp_out
 
-  local conf="$1" snip="$2"
-  awk -v SNIP="$snip" 'BEGIN{inserted=0}{
-    print $0
-    if (inserted==0 && $0 ~ /server_name[ \t].*;/){ print SNIP; inserted=1 }
-  }' "$conf" > "$conf.tmp" && mv "$conf.tmp" "$conf"
+  tmp_snip="$(mktemp)"
+  tmp_out="$(mktemp)"
+
+  printf "%s\n" "$snip" > "$tmp_snip"
+
+  awk -v SNIPFILE="$tmp_snip" '
+    BEGIN { inserted=0 }
+    {
+      print $0
+      if (inserted==0 && $0 ~ /server_name[ \t].*;/) {
+        while ((getline line < SNIPFILE) > 0) print line
+        close(SNIPFILE)
+        inserted=1
+      }
+    }
+  ' "$conf" > "$tmp_out" && mv "$tmp_out" "$conf"
+
+  rm -f "$tmp_snip" "$tmp_out" 2>/dev/null || true
 }
+
 
 _wnmp_nginx_remove_block() {
-
   local conf="$1" tag="$2"
-  sed -i "/# BEGIN ${tag}/,/# END ${tag}/d" "$conf" 2>/dev/null || true
+  sed -i "/^[[:space:]]*# BEGIN ${tag}[[:space:]]*$/,/^[[:space:]]*# END ${tag}[[:space:]]*$/d" "$conf" 2>/dev/null || true
 }
 
+
 _wnmp_nginx_ensure_https_core() {
-
   local conf="$1"
-  if ! grep -qE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl;' "$conf"; then
 
-    if grep -qE '^[[:space:]]*listen[[:space:]]+80;' "$conf"; then
-      sed -i '0,/^[[:space:]]*listen[[:space:]]\+80;/{s/^[[:space:]]*listen[[:space:]]\+80;/    listen 80;\n    listen 443 ssl;/}' "$conf"
+  if ! grep -qE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl;[[:space:]]*$' "$conf"; then
+
+    local insert_listens
+    insert_listens=$'    listen 80;\n'\
+$'    listen 443 ssl;\n'\
+$'    listen [::]:443 ssl;\n'\
+$'    listen 443 quic;\n'\
+$'    listen [::]:443 quic;'
+
+    if grep -qE '^[[:space:]]*listen[[:space:]]+80;[[:space:]]*$' "$conf"; then
+      sed -i "0,/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/{
+s/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/${insert_listens}/
+}" "$conf"
     else
- 
-      sed -i '0,/server[[:space:]]*{/s/server[[:space:]]*{/server{\n    listen 443 ssl;/' "$conf"
+      sed -i "0,/server[[:space:]]*{/s/server[[:space:]]*{/server{\n${insert_listens}\n/" "$conf"
     fi
   fi
 
- 
-  if ! grep -qE '^[[:space:]]*http2[[:space:]]+on;' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" "    http2 on;"
+  if ! grep -qE '^[[:space:]]*http2[[:space:]]+on;[[:space:]]*$' "$conf"; then
+    _wnmp_nginx_inject_after_server_name "$conf" '    http2 on;'
+  fi
+  if ! grep -qE '^[[:space:]]*http3[[:space:]]+on;[[:space:]]*$' "$conf"; then
+    _wnmp_nginx_inject_after_server_name "$conf" '    http3 on;'
+  fi
+
+  if ! grep -qE '^[[:space:]]*add_header[[:space:]]+Alt-Svc[[:space:]]+' "$conf"; then
+    _wnmp_nginx_inject_after_server_name "$conf" '    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;'
+  fi
+  if ! grep -qE '^[[:space:]]*add_header[[:space:]]+QUIC-Status[[:space:]]+' "$conf"; then
+    _wnmp_nginx_inject_after_server_name "$conf" '   add_header QUIC-Status \$http3 always;'
   fi
 }
 
-_wnmp_nginx_set_ssl_paths_devssl() {
 
-  local conf="$1" ssl_dir="$2"
+_wnmp_nginx_set_ssl_paths_devssl() {
+  local conf="$1" ssl_dir="$2" ca="${3:-}"
   local cert="${ssl_dir}/cert.pem"
   local key="${ssl_dir}/key.pem"
-  local ca="${ssl_dir}/ca.pem"
 
   _wnmp_nginx_remove_block "$conf" "WNMP-DEVSSL"
 
@@ -1330,14 +1362,25 @@ _wnmp_nginx_set_ssl_paths_devssl() {
     # mkcert self-signed for LAN/dev
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
-    ssl_trusted_certificate ${ca};
-    ssl_session_cache   shared:SSL:20m;
-    ssl_protocols TLSv1.2 TLSv1.3;
-# END WNMP-DEVSSL
 EOF
 )"
+
+  if [ -n "$ca" ]; then
+    block+=$'\n'"    ssl_trusted_certificate ${ca};"
+  fi
+
+  block+=$'\n'"    ssl_session_cache   shared:SSL:20m;"
+  block+=$'\n'"    ssl_protocols TLSv1.2 TLSv1.3;"
+  block+=$'\n'"    ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';"
+  block+=$'\n'"    ssl_prefer_server_ciphers on;"
+  block+=$'\n'"    ssl_session_timeout 10m;"
+  block+=$'\n'"    ssl_early_data off;"
+  block+=$'\n'"    quic_retry on;"
+  block+=$'\n'"# END WNMP-DEVSSL"
+
   _wnmp_nginx_inject_after_server_name "$conf" "$block"
 }
+
 
 _wnmp_nginx_set_http_to_https_redirect_devssl() {
 
@@ -1448,7 +1491,6 @@ devssl() {
   echo "[devssl][OK] 证书文件："
   echo "  $ssl_dir/cert.pem"
   echo "  $ssl_dir/key.pem"
-  echo "  $ssl_dir/ca.pem (Root CA copy)"
 
 
   local conf1="$vhost_dir/${primary}.conf"
@@ -1608,7 +1650,6 @@ vhost() {
 
   local tmpl
 
-if [[ "$IS_LAN" -eq 1 ]]; then
  tmpl=$(cat <<'EOF'
 server{
     listen 80;
@@ -1625,7 +1666,7 @@ server{
         try_files /403.html =403;
     }
 
-    error_page 404 502 504 =404 @e404;
+    error_page 404 =404 @e404;
 
     location @e404 {
         root html;
@@ -1659,96 +1700,7 @@ server{
 }
 EOF
 )
-else
-  tmpl=$(cat <<'EOF'
-server{
-    listen 80;
-    listen 443 ssl;
-    http2 on;
-    server_name example;
-    root  /home/wwwroot/default;
-    index index.html index.php;
-    include block.conf;
-    error_page 403 =403 @e403;
 
-    location @e403 {
-        root html;
-        internal;
-        default_type text/html;
-        try_files /403.html =403;
-    }
-
-    error_page 404 502 504 =404 @e404;
-
-    location @e404 {
-        root html;
-        internal;
-        default_type text/html;
-        try_files /404.html =404;
-    }
-    tcp_nopush on;
-    tcp_nodelay on;
-    include enable-php.conf;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
-    ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
-    ssl_trusted_certificate /usr/local/nginx/ssl/default/ca.pem;
-    ssl_session_cache   shared:SSL:20m;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!3DES;
-    ssl_prefer_server_ciphers off;
-    ssl_session_timeout 1d;
-    ssl_session_tickets off;
-   
-
-    location ~* /(low)/                 { deny all; }
-    location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
-    location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
-    location ~ /\.                      { deny all; access_log off; log_not_found off; }
-    location = /favicon.ico             { access_log off; log_not_found off; expires max; try_files /favicon.ico =204; }
-    location = /robots.txt              { allow all; access_log off; log_not_found off; }
-
-    location ~* ^.+\.(apk|css|webp|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|txt|xml|json|mp4|webm|avi|mp3|zip|rar|tar|gz|xlsx|docx|bin|pcm)$ {
-        access_log off;
-        expires 1d;
-        add_header Cache-Control "public";
-        try_files $uri =404;
-        location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
-    }
-    
-    location ^~ /.well-known/ { allow all; }
-    location ~ /\.(?!well-known) {deny all;}
-
-    location = /webdav {
-        return 301 /webdav/;
-    }
-
-    location ^~ /webdav/ {
-        if ($server_port != 443) { return 403; }
-        set $domain $host;
-        if ($host ~* "^www\.(.+)$") {
-            set $domain $1;
-        }
-        set $site_root /home/wwwroot/$domain;
-        alias $site_root/;
-       
-        types { }
-
-        default_type application/octet-stream;
-        auth_basic "WebDAV Authentication";
-        auth_basic_user_file /home/passwd/.$host;
-        dav_methods PUT DELETE MKCOL COPY MOVE;
-        dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
-        create_full_put_path on;
-        dav_access user:rw group:rw all:r;
-        dav_ext_lock zone=webdav_locks;
-        
-    }
-    access_log off;
-}
-EOF
-)
-fi
 
 
 
@@ -1808,18 +1760,16 @@ fi
   }
   update_ssl_paths_single_dir() { 
     local conf="$1"; local dir="$2"
-    local cert="${dir}/cert.pem"; local key="${dir}/key.pem"; local ca="${dir}/ca.pem"
+    local cert="${dir}/cert.pem"; local key="${dir}/key.pem";
     sed -i \
       -e "s#ssl_certificate[[:space:]]\+/usr/local/nginx/ssl/default/cert.pem;#ssl_certificate     ${cert};#g" \
       -e "s#ssl_certificate_key[[:space:]]\+/usr/local/nginx/ssl/default/key.pem;#ssl_certificate_key ${key};#g" \
-      -e "s#ssl_trusted_certificate[[:space:]]\+/usr/local/nginx/ssl/default/ca.pem;#ssl_trusted_certificate ${ca};#g" \
       "$conf"
     if ! grep -qE "ssl_certificate[[:space:]]+${cert//\//\\/};" "$conf"; then
       local _SSL_LINES
       _SSL_LINES="$(cat <<EOF
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
-    ssl_trusted_certificate ${$ca};
 EOF
 )"
       inject_after_server_name "$conf" "$_SSL_LINES"
@@ -1840,24 +1790,20 @@ EOF
       -e '/^[[:space:]]*ssl_prefer_server_ciphers[[:space:]]\+/d' \
       "$1"
   }
-  ensure_https_core() {
-    grep -q 'listen 443 ssl;' "$1" || sed -i 's/^ *listen 80;$/    listen 80;\n    listen 443 ssl;/' "$1"
-    grep -q '^ *http2 on;' "$1" || inject_after_server_name "$1" "    http2 on;"
-    grep -q 'Strict-Transport-Security' "$1" || inject_after_server_name "$1" '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
-  }
 
   local REDIR_WWW_SSL REDIR_PLAIN_SSL REDIR_WWW_NO_SSL
-  REDIR_WWW_SSL="$(cat <<'EOF'
+  REDIR_WWW_SSL="$(cat <<EOF
 # BEGIN AUTO-HTTPS-REDIRECT
-    if ($host !~* ^www\.) {
-        return 301 https://www.$host$request_uri;
+    if (\$scheme != https) {
+        return 301 https://www.$primary\$request_uri;
     }
-    if ($server_port = 80 ) {
-        return 301 https://$host$request_uri;
+    if (\$host !~* ^www\.) {
+        return 301 https://www.\$host\$request_uri;
     }
 # END AUTO-HTTPS-REDIRECT
 EOF
 )"
+
   REDIR_PLAIN_SSL="$(cat <<'EOF'
 # BEGIN AUTO-HTTPS-REDIRECT
     if ($server_port = 80 ) {
@@ -1956,16 +1902,115 @@ EOF
       --ecc \
       --key-file       "$ssl_dir/key.pem" \
       --fullchain-file "$ssl_dir/cert.pem" \
-      --ca-file        "$ssl_dir/ca.pem" \
       --reloadcmd      "true" || true
 
     if [[ -s "$ssl_dir/key.pem" && -s "$ssl_dir/cert.pem" ]]; then
       cert_success=1
-      echo "[vhost][OK] 证书就绪：$primary -> $ssl_dir"
-      ensure_https_core "$conf"
+      echo "[vhost][OK]：$primary -> $ssl_dir"
+
+      tmpl=$(cat <<'EOF'
+server{
+    listen 80;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    listen 443 quic;
+    listen [::]:443 quic;
+    http2 on;
+    http3 on;
+    server_name example;
+    root  /home/wwwroot/default;
+    index index.html index.php;
+    include block.conf;
+    error_page 403 =403 @e403;
+
+    location @e403 {
+        root html;
+        internal;
+        default_type text/html;
+        try_files /403.html =403;
+    }
+
+    error_page 404  =404 @e404;
+
+    location @e404 {
+        root html;
+        internal;
+        default_type text/html;
+        try_files /404.html =404;
+    }
+    tcp_nopush on;
+    tcp_nodelay on;
+    include enable-php.conf;
+
+    ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
+    ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
+  
+    ssl_session_cache   shared:SSL:20m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
+    ssl_prefer_server_ciphers on;
+    ssl_session_timeout 10m;
+    ssl_early_data off;
+    quic_retry on;
+    add_header Alt-Svc 'h3=":443"; ma=86400' always;
+    add_header QUIC-Status $http3 always;
+   
+
+    location ~* /(low)/                 { deny all; }
+    location ~* ^/(upload|uploads)/.*\.php$ { deny all; }
+    location ~* .*\.(log|sql|db|back|conf|cli|bak|env)$ { deny all; }
+    location ~ /\.                      { deny all; access_log off; log_not_found off; }
+    location = /favicon.ico             { access_log off; log_not_found off; expires max; try_files /favicon.ico =204; }
+    location = /robots.txt              { allow all; access_log off; log_not_found off; }
+
+    location ~* ^.+\.(apk|css|webp|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|txt|xml|json|mp4|webm|avi|mp3|zip|rar|tar|gz|xlsx|docx|bin|pcm)$ {
+        access_log off;
+        expires 1d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+        location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
+    }
+    
+    location ^~ /.well-known/ { allow all; }
+    location ~ /\.(?!well-known) {deny all;}
+
+    location = /webdav {
+        return 301 /webdav/;
+    }
+
+    location ^~ /webdav/ {
+        if ($server_port != 443) { return 403; }
+        set $domain $host;
+        if ($host ~* "^www\.(.+)$") {
+            set $domain $1;
+        }
+        set $site_root /home/wwwroot/$domain;
+        alias $site_root/;
+       
+        types { }
+
+        default_type application/octet-stream;
+        auth_basic "WebDAV Authentication";
+        auth_basic_user_file /home/passwd/.$host;
+        dav_methods PUT DELETE MKCOL COPY MOVE;
+        dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
+        create_full_put_path on;
+        dav_access user:rw group:rw all:r;
+        dav_ext_lock zone=webdav_locks;
+        
+    }
+    access_log off;
+}
+EOF
+)
+    echo "$tmpl" | sed \
+    -e "s/server_name[[:space:]]\+example;/${server_name_line//\//\\/}/" \
+    -e "s#\(root[[:space:]]\+\)/home/wwwroot/default;#\1${site_root};#g" \
+    > "$conf"  
+ 
       update_ssl_paths_single_dir "$conf" "$ssl_dir"
     else
-      echo "[vhost][WARN] 证书签发未成功，将按“未申请证书”处理。"
+      echo "[vhost][WARN] 证书签发未成功，将按未申请证书处理。"
     fi
   fi
 
@@ -3025,10 +3070,9 @@ install_cert_to_dir() {
     --ecc \
     --key-file       "$ssl_dir/key.pem" \
     --fullchain-file "$ssl_dir/cert.pem" \
-    --ca-file        "$ssl_dir/ca.pem" \
     --reloadcmd      "true" || true
 
-  if [ -s "$ssl_dir/key.pem" ] && [ -s "$ssl_dir/cert.pem" ] && [ -s "$ssl_dir/ca.pem" ]; then
+  if [ -s "$ssl_dir/key.pem" ] && [ -s "$ssl_dir/cert.pem" ]; then
     touch "$FLAG"
     log "✅ Installed OK: $domain"
     return 0
@@ -3502,6 +3546,7 @@ CONFIGURE_OPTS=(
   "--with-zlib"
   "--enable-xml"
   "--enable-pcntl"
+  "--enable-posix"
   "--enable-bcmath"
   "--with-curl"
   "--enable-mbregex"
@@ -3633,12 +3678,16 @@ opcache.enable_cli=1
 opcache.memory_consumption=256
 opcache.interned_strings_buffer=16
 opcache.max_accelerated_files=100000
+
 opcache.validate_timestamps=1
-opcache.revalidate_freq=1
-opcache.jit=tracing
-opcache.jit_buffer_size=64M
+opcache.revalidate_freq=0
+
 opcache.save_comments=1
 opcache.enable_file_override=0
+
+opcache.jit=off
+opcache.jit_buffer_size=0
+
 
 [apcu]
 apc.enabled=1
@@ -3710,12 +3759,16 @@ opcache.enable_cli=1
 opcache.memory_consumption=256
 opcache.interned_strings_buffer=16
 opcache.max_accelerated_files=100000
+
 opcache.validate_timestamps=1
-opcache.revalidate_freq=1
-opcache.jit=tracing
-opcache.jit_buffer_size=64M
+opcache.revalidate_freq=0
+
 opcache.save_comments=1
 opcache.enable_file_override=0
+
+opcache.jit=off
+opcache.jit_buffer_size=0
+
 
 [apcu]
 apc.enabled=1
@@ -3780,15 +3833,18 @@ case "$choosenginx" in
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
 
-    if [[ "$IS_LAN" -eq 0 ]]; then 
-        wget -O -  https://get.acme.sh | sh -s email=1@gmail.com
+    wget -O -  https://get.acme.sh | sh -s email=1@gmail.com
         
-        ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
+    ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
 
-        bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-        if [ ! -s /root/.acme.sh/ca/acme-v02.api.letsencrypt.org/account.key ]; then
-          /root/.acme.sh/acme.sh --register-account -m 1@gmail.com --server letsencrypt
-        fi
+    bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    if [ ! -s /root/.acme.sh/ca/acme-v02.api.letsencrypt.org/account.key ]; then
+      /root/.acme.sh/acme.sh --register-account -m 1@gmail.com --server letsencrypt
+    fi
+
+
+    if [[ "$IS_LAN" -eq 0 ]]; then 
+        
  
         echo "$PUBLIC_IP"
         if acme.sh --issue --server letsencrypt -d "$PUBLIC_IP" --certificate-profile shortlived --standalone; then
@@ -3810,18 +3866,19 @@ case "$choosenginx" in
 
     
 
-    if [ ! -f "$WNMPDIR/nginx-1.28.1.tar.gz" ]; then
-      rm -rf nginx-1.28.1
-      download_with_mirrors "https://nginx.org/download/nginx-1.28.1.tar.gz" "$WNMPDIR/nginx-1.28.1.tar.gz"
-      tar zxvf nginx-1.28.1.tar.gz
-      cd nginx-1.28.1
+    if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
+      rm -rf nginx
+      download_with_mirrors "https://nginx.org/download/nginx-1.29.5.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
+      
+      cd nginx
       git --version >/dev/null || { log "git missing"; exit 1; }
       git_clone_wnmp https://github.com/arut/nginx-dav-ext-module.git
      
       
     else
-      tar zxvf nginx-1.28.1.tar.gz
-      cd nginx-1.28.1
+      mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
+      cd nginx
       git --version >/dev/null || { log "git missing"; exit 1; }
       rm -rf nginx-dav-ext-module
       git_clone_wnmp https://github.com/arut/nginx-dav-ext-module.git
@@ -3857,6 +3914,7 @@ case "$choosenginx" in
       --with-http_stub_status_module \
       --with-http_sub_module \
       --with-http_v2_module \
+      --with-http_v3_module \
       --with-stream \
       --with-stream_realip_module \
       --with-stream_ssl_module \
@@ -4670,7 +4728,7 @@ http {
     
 
     server {
-        listen 80 default_server reuseport;
+        listen 80 default_server;
         server_name _;
         root  /home/wwwroot/default;
         index index.html index.php;
@@ -4684,7 +4742,7 @@ http {
             try_files /403.html =403;
         }
 
-        error_page 404 502 504 =404 @e404;
+        error_page 404 =404 @e404;
 
         location @e404 {
             root html;
@@ -4817,9 +4875,13 @@ http {
     
 
     server {
-        listen 80 default_server reuseport;
+        listen 80 default_server;
         listen 443 ssl  default_server reuseport;
+        listen [::]:443 ssl default_server reuseport;
+        listen 443 quic default_server reuseport;
+        listen [::]:443 quic default_server reuseport;
         http2 on;
+        http3 on;
         server_name _;
         if ($server_port = 80 ) {
             return 301 https://$host$request_uri;
@@ -4836,7 +4898,7 @@ http {
             try_files /403.html =403;
         }
 
-        error_page 404 502 504 =404 @e404;
+        error_page 404 =404 @e404;
 
         location @e404 {
             root html;
@@ -4847,12 +4909,15 @@ http {
         ssl_certificate     /usr/local/nginx/ssl/default/cert.pem;
         ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;
         
+        ssl_session_cache   shared:SSL:20m;
         ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
         ssl_prefer_server_ciphers on;
         ssl_session_timeout 10m;
-        ssl_stapling off;
-        ssl_stapling_verify off;
+        ssl_early_data off;
+        quic_retry on;
+        add_header Alt-Svc 'h3=":443"; ma=86400' always;
+        add_header QUIC-Status $http3 always;
         
         autoindex_exact_size off;
         autoindex_localtime on;
@@ -4892,7 +4957,7 @@ EOF
 fi
 
     if [[ "$IS_LAN" -eq 0 ]]; then  
-      acme.sh --install-cert -d "$PUBLIC_IP" --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem --ca-file  /usr/local/nginx/ssl/default/ca.pem || true
+      acme.sh --install-cert -d "$PUBLIC_IP" --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem  || true
     fi
 
     systemctl daemon-reload
