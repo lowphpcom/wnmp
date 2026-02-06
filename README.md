@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.38 NGINX defaults to version v1.95, fixes known vulnerabilities, and enables the h3 protocol.
+
 v1.37 Added `wnmp cf` for standalone installation to capture Nginx logs revealing genuine client IPs after Cloudflare CDN proxy, with scheduled tasks for automatic updates to the official CF IP list.
 
 v1.36 Provides UI support for Nginx open directory clean download sites. It is not an additional program but a UI enhancement for Nginx autoindex. Simply execute `wnmp vhost` and select [yes] for the open directory option to experience it. Demo:[bb.wnmp.org](https://bb.wnmp.org)
