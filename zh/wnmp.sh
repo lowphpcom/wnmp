@@ -4669,7 +4669,7 @@ http {
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
-    keepalive_timeout   15s;
+    keepalive_timeout   30s;
     keepalive_requests  100000;
 
     proxy_request_buffering on;
@@ -4816,7 +4816,7 @@ http {
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
-    keepalive_timeout   15s;
+    keepalive_timeout   30s;
     keepalive_requests  100000;
 
     proxy_request_buffering on;
