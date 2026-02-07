@@ -34,7 +34,7 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
-v1.38 NGINX默认使用v1.95版本，修复已知漏洞并启用h3协议。
+v1.38 NGINX默认使用v1.29.5版本，修复已知漏洞并启用h3协议。
 
 v1.37 新增 `wnmp cf` 可独立安装nginx日志获取真实cloudflare CDN代理后的客户端真实IP，并部署自动更新CF官方IP列表定时任务
 
