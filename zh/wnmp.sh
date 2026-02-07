@@ -2825,22 +2825,40 @@ wnmp_kernel_tune() {
     echo ""
     echo "$SECTION_TAG_BEGIN"
     cat <<'EOF'
+kernel.core_pattern = core
+kernel.core_uses_pid = 1
+kernel.sysrq = 0
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_regular = 2
+fs.protected_fifos = 1
+vm.max_map_count = 1048576
+vm.swappiness = 10
+kernel.pid_max = 4194304
+fs.file-max = 2000000
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-fs.file-max = 1000000
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_syn_backlog = 16384
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
-net.core.netdev_max_backlog = 262144
-net.core.somaxconn = 65535
-net.ipv4.tcp_max_syn_backlog = 262144
-net.ipv4.tcp_synack_retries = 1
-net.ipv4.tcp_syn_retries = 1
-net.ipv4.tcp_fin_timeout = 30
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_keepalive_time = 1200
-net.ipv4.tcp_max_tw_buckets = 5000
-net.ipv4.tcp_max_orphans = 262144
+et.ipv4.tcp_syn_retries = 3
+net.ipv4.tcp_synack_retries = 3
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 6
+net.ipv4.tcp_tw_reuse = 0
+net.ipv4.tcp_max_tw_buckets = 200000
 net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.promote_secondaries = 1
+net.ipv4.conf.all.promote_secondaries = 1
+net.ipv4.ping_group_range = 0 2147483647
 
 EOF
     echo "$SECTION_TAG_END"
