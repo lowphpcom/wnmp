@@ -38,7 +38,7 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
-v1.38 NGINX defaults to version v1.95, fixes known vulnerabilities, and enables the h3 protocol.
+v1.38 NGINX defaults to version v1.29.5, fixes known vulnerabilities, and enables the h3 protocol.
 
 v1.37 Added `wnmp cf` for standalone installation to capture Nginx logs revealing genuine client IPs after Cloudflare CDN proxy, with scheduled tasks for automatic updates to the official CF IP list.
 
@@ -91,7 +91,7 @@ It’s designed for **small to medium websites, edge nodes, and private deployme
 ## ✨ Core Features
 
 - **Ready-to-Use Web Runtime**  
-  Compiles latest Nginx (1.28.1) with `dav-ext`, `http2`, and `stream` modules.  
+  Compiles latest Nginx (1.29.5) with `dav-ext`, `http2`, and `stream` modules.  
   Supports PHP 8.2–8.5 and MariaDB 10.6 / 10.11 / 11.8.
 
 - **Kernel & Network Optimization**  
