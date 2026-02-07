@@ -89,7 +89,7 @@ v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和
 ## ✨ 核心特性
 
 - **即装即用的 Web 运行环境**  
-  编译安装 Nginx 1.28.1（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.5 与 MariaDB 10.6 / 10.11 / 11.8。
+  编译安装 Nginx 1.29.5（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.5 与 MariaDB 10.6 / 10.11 / 11.8。
 
 - **内核 / 网络调优**  
   启用 BBR/FQ，优化 `somaxconn` 与文件句柄，关闭 THP，自动写入 sysctl 与 limits。
