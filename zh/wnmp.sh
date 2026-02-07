@@ -3832,9 +3832,8 @@ case "$choosenginx" in
     cd "$WNMPDIR"
     apt-get install -y cron curl socat tar
     systemctl enable --now cron
-
-    wget -O -  https://get.acme.sh | sh -s email=1@gmail.com
-        
+    download_with_mirrors "https://get.acme.sh" "$WNMPDIR/acme.sh.install"   
+    sh acme.sh.install email=1@gmail.com    
     ln -sf /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
 
     bash /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
