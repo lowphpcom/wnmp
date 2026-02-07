@@ -1687,9 +1687,7 @@ server{
     location ~* ^.+\.(apk|css|webp|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|txt|xml|json|mp4|webm|avi|mp3|zip|rar|tar|gz|xlsx|docx|bin|pcm)$ {
         access_log off;
         expires 1d;
-        add_header Cache-Control "public";
-        try_files $uri =404;
-        location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
+        add_header Cache-Control "public, max-age=86400, immutable";
     }
     
     location ^~ /.well-known/ { allow all; }
@@ -1964,9 +1962,7 @@ server{
     location ~* ^.+\.(apk|css|webp|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|txt|xml|json|mp4|webm|avi|mp3|zip|rar|tar|gz|xlsx|docx|bin|pcm)$ {
         access_log off;
         expires 1d;
-        add_header Cache-Control "public";
-        try_files $uri =404;
-        location ~ \.(php|phtml|sh|bash|pl|py|exe)$ { deny all; }
+        add_header Cache-Control "public, max-age=86400, immutable";
     }
     
     location ^~ /.well-known/ { allow all; }
@@ -2841,7 +2837,7 @@ net.core.netdev_max_backlog = 16384
 net.ipv4.tcp_max_syn_backlog = 16384
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
-et.ipv4.tcp_syn_retries = 3
+net.ipv4.tcp_syn_retries = 3
 net.ipv4.tcp_synack_retries = 3
 net.ipv4.tcp_fin_timeout = 15
 net.ipv4.tcp_keepalive_time = 60
