@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.39 HTTP/3 has been reverted to an optional configuration. Under packet loss conditions, it cannot leverage the Linux kernel BBR congestion control algorithm, which may cause static resource requests to stall. If you need to enable it, please uncomment the relevant settings in the site’s Nginx configuration file.
+
 v1.38 NGINX defaults to version v1.29.5, fixes known vulnerabilities, and enables the h3 protocol.If a firewall is present, please ensure UDP port 443 is open to enable HTTP/3 properly!
 
 v1.37 Added `wnmp cf` for standalone installation to capture Nginx logs revealing genuine client IPs after Cloudflare CDN proxy, with scheduled tasks for automatic updates to the official CF IP list.
