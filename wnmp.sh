@@ -3,7 +3,7 @@
 # Copyright (C) 2025 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.38
+# Version: 1.39
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.38"
+green  " [init] Version: 1.39"
 green  "============================================================"
 echo
 sleep 1
@@ -1321,8 +1321,8 @@ _wnmp_nginx_ensure_https_core() {
     insert_listens=$'    listen 80;\n'\
 $'    listen 443 ssl;\n'\
 $'    listen [::]:443 ssl;\n'\
-$'    listen 443 quic;\n'\
-$'    listen [::]:443 quic;'
+$'    #listen 443 quic;\n'\
+$'    #listen [::]:443 quic;'
 
     if grep -qE '^[[:space:]]*listen[[:space:]]+80;[[:space:]]*$' "$conf"; then
       sed -i "0,/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/{
@@ -1337,14 +1337,14 @@ s/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/${insert_listens}/
     _wnmp_nginx_inject_after_server_name "$conf" '    http2 on;'
   fi
   if ! grep -qE '^[[:space:]]*http3[[:space:]]+on;[[:space:]]*$' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" '    http3 on;'
+    _wnmp_nginx_inject_after_server_name "$conf" '    #http3 on;'
   fi
 
   if ! grep -qE '^[[:space:]]*add_header[[:space:]]+Alt-Svc[[:space:]]+' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" '    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;'
+    _wnmp_nginx_inject_after_server_name "$conf" '    #add_header Alt-Svc 'h3=\":443\"; ma=86400' always;'
   fi
   if ! grep -qE '^[[:space:]]*add_header[[:space:]]+QUIC-Status[[:space:]]+' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" '   add_header QUIC-Status \$http3 always;'
+    _wnmp_nginx_inject_after_server_name "$conf" '   #add_header QUIC-Status \$http3 always;'
   fi
 }
 
@@ -1375,7 +1375,7 @@ EOF
   block+=$'\n'"    ssl_prefer_server_ciphers on;"
   block+=$'\n'"    ssl_session_timeout 10m;"
   block+=$'\n'"    ssl_early_data off;"
-  block+=$'\n'"    quic_retry on;"
+  block+=$'\n'"    #quic_retry on;"
   block+=$'\n'"# END WNMP-DEVSSL"
 
   _wnmp_nginx_inject_after_server_name "$conf" "$block"
@@ -1909,10 +1909,10 @@ server{
     listen 80;
     listen 443 ssl;
     listen [::]:443 ssl;
-    listen 443 quic;
-    listen [::]:443 quic;
+    #listen 443 quic;
+    #listen [::]:443 quic;
     http2 on;
-    http3 on;
+    #http3 on;
     server_name example;
     root  /home/wwwroot/default;
     index index.html index.php;
@@ -1947,9 +1947,9 @@ server{
     ssl_prefer_server_ciphers on;
     ssl_session_timeout 10m;
     ssl_early_data off;
-    quic_retry on;
-    add_header Alt-Svc 'h3=":443"; ma=86400' always;
-    add_header QUIC-Status $http3 always;
+    #quic_retry on;
+    #add_header Alt-Svc 'h3=":443"; ma=86400' always;
+    #add_header QUIC-Status $http3 always;
    
 
     location ~* /(low)/                 { deny all; }
@@ -4887,10 +4887,10 @@ http {
         listen 80 default_server;
         listen 443 ssl  default_server reuseport;
         listen [::]:443 ssl default_server reuseport;
-        listen 443 quic default_server reuseport;
-        listen [::]:443 quic default_server reuseport;
+        #listen 443 quic default_server reuseport;
+        #listen [::]:443 quic default_server reuseport;
         http2 on;
-        http3 on;
+        #http3 on;
         server_name _;
         if ($server_port = 80 ) {
             return 301 https://$host$request_uri;
@@ -4924,9 +4924,9 @@ http {
         ssl_prefer_server_ciphers on;
         ssl_session_timeout 10m;
         ssl_early_data off;
-        quic_retry on;
-        add_header Alt-Svc 'h3=":443"; ma=86400' always;
-        add_header QUIC-Status $http3 always;
+        #quic_retry on;
+        #add_header Alt-Svc 'h3=":443"; ma=86400' always;
+        #add_header QUIC-Status $http3 always;
         
         autoindex_exact_size off;
         autoindex_localtime on;
