@@ -5177,109 +5177,99 @@ if [ "$mariadb_version" != "0" ]; then
   cp /usr/local/mariadb/support-files/mysql.server /etc/init.d/mariadb
   chmod 755 /etc/init.d/mariadb
 
-  cat <<'EOF' > /etc/my.cnf
+cat > /etc/my.cnf <<'EOF' 
 [client]
-port        = 3306
-socket      = /tmp/mariadb.sock
-
+port   = 3306
+socket = /tmp/mariadb.sock
+default-character-set = utf8mb4
+[mysql]
+no-auto-rehash
+default-character-set = utf8mb4
 [mysqld]
-
-server-id=1
-log-bin=/home/mariadb/binlog/mysql-bin
-binlog_format=row
-expire_logs_days=3
-innodb_flush_log_at_trx_commit=1
-sync_binlog=1
-
+user      = mariadb
+basedir   = /usr/local/mariadb
+datadir   = /home/mariadb
+pid-file  = /home/mariadb/mariadb.pid
+socket    = /tmp/mariadb.sock
+port      = 3306
+skip-name-resolve
+log_error = /home/mariadb/mariadb.err
+server-id = 1
+log-bin   = /home/mariadb/binlog/mysql-bin
+binlog_format = row
+expire_logs_days = 3
+sync_binlog = 1
 character-set-server = utf8mb4
-collation-server     = utf8mb4_general_ci
+collation-server     = utf8mb4_unicode_ci
 skip-character-set-client-handshake
 init_connect='SET NAMES utf8mb4'
 sql-mode = NO_ENGINE_SUBSTITUTION
-port        = 3306
-socket      = /tmp/mariadb.sock
-user        = mariadb
-basedir     = /usr/local/mariadb
-datadir     = /home/mariadb
-log_error   = /home/mariadb/mariadb.err
-pid-file    = /home/mariadb/mariadb.pid
-
-skip-name-resolve
-performance_schema=OFF
-event_scheduler=OFF
-
-max_connections = 300
+performance_schema = OFF
+event_scheduler    = OFF
+max_connections    = 300
 max_connect_errors = 1000
-back_log = 1024
-thread_cache_size = 256
-
-wait_timeout = 3600
+back_log           = 1024
+thread_cache_size  = 256
+wait_timeout        = 3600
 interactive_timeout = 3600
-
 default_storage_engine = InnoDB
-innodb_buffer_pool_size = 1G
-innodb_buffer_pool_instances = 2
-
-innodb_file_per_table = 1
+innodb_file_per_table  = 1
+innodb_buffer_pool_size      = 256M
 innodb_flush_log_at_trx_commit = 2
-innodb_log_file_size = 256M
+innodb_log_file_size   = 256M
 innodb_log_buffer_size = 16M
 innodb_lock_wait_timeout = 60
-
-
-innodb_flush_method = O_DIRECT
-innodb_io_capacity = 1000
+innodb_flush_method    = O_DIRECT
+innodb_io_capacity     = 1000
 innodb_io_capacity_max = 2000
-innodb_read_io_threads = 8
+innodb_read_io_threads  = 8
 innodb_write_io_threads = 8
-
-table_open_cache = 10000
-open_files_limit = 65535
-
-
-tmp_table_size = 64M
+table_open_cache  = 10000
+open_files_limit  = 65535
+tmp_table_size      = 64M
 max_heap_table_size = 64M
-
-
 slow_query_log = 1
 slow_query_log_file = /home/mariadb/slow.log
-long_query_time = 0.2
+long_query_time = 1.0
 log_queries_not_using_indexes = 0
-
-
 [mysqldump]
 quick
 max_allowed_packet = 16M
-
-[mysql]
-no-auto-rehash
-
 [myisamchk]
 key_buffer_size = 128M
 sort_buffer_size = 2M
-read_buffer = 2M
+read_buffer  = 2M
 write_buffer = 2M
-
 [mysqlhotcopy]
 interactive-timeout
-
 EOF
 
-  cat <<EOF >  /etc/systemd/system/mariadb.service
+cat > /root/.my.cnf <<'EOF'
+[client]
+socket=/tmp/mariadb.sock
+port=3306
+default-character-set=utf8mb4
+EOF
+
+chmod 600 /root/.my.cnf
+
+cat > /etc/systemd/system/mariadb.service <<'EOF' 
 [Unit]
-Description=MariaDB Server
-After=network.target syslog.target
-
+Description=MariaDB Server (WNMP)
+After=network.target
+Wants=network.target
 [Service]
-Type=forking
-
-ExecStart=/etc/init.d/mariadb start
-ExecStop=/etc/init.d/mariadb stop
-ExecReload=/etc/init.d/mariadb reload
-
-Restart=no
+Type=simple
+User=mariadb
+Group=mariadb
+ExecStart=/usr/local/mariadb/bin/mariadbd --defaults-file=/etc/my.cnf --bind-address=127.0.0.1
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65535
 PrivateTmp=false
-
 [Install]
 WantedBy=multi-user.target
 EOF
