@@ -461,17 +461,149 @@ detect_cn_ip() {
 
   return 0
 }
+
+
 git_clone_wnmp() {
   local repo="$1"
   local dir="${2:-}"
 
+  [[ -z "$repo" ]] && { echo "[git] repo empty"; return 2; }
+
+  local depth=1
+  local tries=3
+  local timeout_s=120
+
+  local low_speed=128
+  local low_time=30
+ 
+  local -a GIT_ENV=()
   if [[ "${PROXY_MODE:-}" == "DIRECT" || "${IS_CN:-0}" -eq 0 ]]; then
-    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
-      git -c http.proxy= -c https.proxy= clone --depth=1 "$repo" ${dir:+ "$dir"}
-  else
-    git clone --depth=1 "$repo" ${dir:+ "$dir"}
+    GIT_ENV=(env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy)
   fi
+
+  local repo_norm="${repo%/}"
+  local repo_no_git="${repo_norm%.git}"
+
+  local is_github=0 owner_repo=""
+  if [[ "$repo_no_git" =~ ^https?://github\.com/([^/]+/[^/]+)$ ]]; then
+    is_github=1; owner_repo="${BASH_REMATCH[1]}"
+  elif [[ "$repo_no_git" =~ ^git@github\.com:([^/]+/[^/]+)$ ]]; then
+    is_github=1; owner_repo="${BASH_REMATCH[1]}"
+  fi
+
+  local -a sources=("$repo_norm")
+  if [[ $is_github -eq 1 ]]; then
+    sources+=(
+      "https://ghproxy.com/https://github.com/${owner_repo}.git"
+      "https://github.com.cnpmjs.org/${owner_repo}.git"
+    )
+  fi
+
+
+  _verify_ok() {
+    local target="${1:-}"
+    [[ -z "$target" ]] && target="${owner_repo##*/}"
+    [[ -d "$target" ]] || return 1
+
+    # 至少要有文件
+    [[ -n "$(ls -A "$target" 2>/dev/null)" ]] || return 1
+
+    # 如果是 git clone，必须有 commit
+    if [[ -d "$target/.git" ]]; then
+      git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+      git -C "$target" rev-list -n 1 HEAD >/dev/null 2>&1 || return 1
+    fi
+
+    return 0
+  }
+
+
+  _do_git_clone() {
+    local src="$1"
+    local target="${dir:-${owner_repo##*/}}"
+
+    rm -rf "$target" 2>/dev/null || true
+
+    if command -v timeout >/dev/null 2>&1; then
+      "${GIT_ENV[@]}" timeout "$timeout_s" git \
+        -c http.proxy= -c https.proxy= \
+        -c http.lowSpeedLimit="$low_speed" \
+        -c http.lowSpeedTime="$low_time" \
+        -c http.postBuffer=524288000 \
+        -c http.followRedirects=true \
+        clone --depth="$depth" "$src" ${dir:+ "$dir"}
+    else
+      "${GIT_ENV[@]}" git \
+        -c http.proxy= -c https.proxy= \
+        -c http.lowSpeedLimit="$low_speed" \
+        -c http.lowSpeedTime="$low_time" \
+        -c http.postBuffer=524288000 \
+        -c http.followRedirects=true \
+        clone --depth="$depth" "$src" ${dir:+ "$dir"}
+    fi
+
+    _verify_ok "$target"
+  }
+
+
+  _zip_fallback() {
+    [[ $is_github -ne 1 ]] && return 1
+    command -v curl >/dev/null 2>&1 || return 1
+    command -v unzip >/dev/null 2>&1 || return 1
+
+    local target="${dir:-${owner_repo##*/}}"
+    rm -rf "$target" 2>/dev/null || true
+
+    local tmpzip tmpdir
+    tmpzip="$(mktemp -t wnmp_git.XXXX.zip)"
+    tmpdir="$(mktemp -d -t wnmp_git.XXXX)"
+
+    for br in master main; do
+      local url="https://codeload.github.com/${owner_repo}/zip/refs/heads/${br}"
+      echo "[git] zip fallback: $url"
+      if curl -fL --connect-timeout 10 --max-time 180 -o "$tmpzip" "$url"; then
+        unzip -q "$tmpzip" -d "$tmpdir" || continue
+        local srcdir
+        srcdir="$(find "$tmpdir" -maxdepth 1 -type d -name "*-${br}" | head -n1)"
+        [[ -z "$srcdir" ]] && continue
+
+        mkdir -p "$target"
+        cp -a "$srcdir"/. "$target"/
+
+        rm -rf "$tmpzip" "$tmpdir"
+        _verify_ok "$target"
+        return $?
+      fi
+    done
+
+    rm -rf "$tmpzip" "$tmpdir"
+    return 1
+  }
+
+
+  local src i
+  for src in "${sources[@]}"; do
+    for ((i=1; i<=tries; i++)); do
+      echo "[git] clone try $i/$tries: $src"
+      if _do_git_clone "$src"; then
+        echo "[git] success: $src"
+        return 0
+      fi
+      echo "[git] failed, sleep $((i*2))s..."
+      sleep $((i*2))
+    done
+  done
+
+  echo "[git] git clone failed, try zip..."
+  if _zip_fallback; then
+    echo "[git] zip fallback success"
+    return 0
+  fi
+
+  echo "[git] all failed: $repo_norm"
+  return 1
 }
+
 download_with_mirrors() {
   local url="$1"
   local out="$2"
@@ -3888,6 +4020,7 @@ case "$choosenginx" in
      
       
     else
+      rm -rf nginx
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       cd nginx
       git --version >/dev/null || { log "git missing"; exit 1; }
