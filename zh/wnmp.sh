@@ -3802,10 +3802,10 @@ default_socket_timeout = 60
 
 
 [Pdo_mysql]
-pdo_mysql.default_socket=/tmp/mariadb.sock
+pdo_mysql.default_socket=/run/mariadb/mariadb.sock
 
 [MySQLi]
-mysqli.default_socket = /tmp/mariadb.sock
+mysqli.default_socket = /run/mariadb/mariadb.sock
 
 [Session]
 session.save_handler = files
@@ -3883,10 +3883,10 @@ allow_url_include = Off
 default_socket_timeout = 60
 
 [Pdo_mysql]
-pdo_mysql.default_socket=/tmp/mariadb.sock
+pdo_mysql.default_socket=/run/mariadb/mariadb.sock
 
 [MySQLi]
-mysqli.default_socket = /tmp/mariadb.sock
+mysqli.default_socket = /run/mariadb/mariadb.sock
 
 [Session]
 session.save_handler = files
@@ -5137,7 +5137,7 @@ if [ "$mariadb_version" != "0" ]; then
   mkdir -p /home/mariadb
   mkdir -p /home/mariadb/binlog
   chown -R mariadb:mariadb /home/mariadb
-
+  
 
   if [ ! -f "$WNMPDIR/mariadb-$mariadb_version.tar.gz" ]; then
     rm -rf "mariadb-$mariadb_version"
@@ -5159,7 +5159,7 @@ if [ "$mariadb_version" != "0" ]; then
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb \
     -DMYSQL_DATADIR=/home/mariadb \
-    -DMYSQL_UNIX_ADDR=/tmp/mariadb.sock \
+    -DMYSQL_UNIX_ADDR=/run/mariadb/mariadb.sock \
     -DWITH_INNOBASE_STORAGE_ENGINE=1 \
     -DWITH_ARCHIVE_STORAGE_ENGINE=0 \
     -DWITH_BLACKHOLE_STORAGE_ENGINE=0 \
@@ -5185,7 +5185,7 @@ if [ "$mariadb_version" != "0" ]; then
 cat > /etc/my.cnf <<'EOF' 
 [client]
 port   = 3306
-socket = /tmp/mariadb.sock
+socket = /run/mariadb/mariadb.sock
 default-character-set = utf8mb4
 [mysql]
 no-auto-rehash
@@ -5194,8 +5194,8 @@ default-character-set = utf8mb4
 user      = mariadb
 basedir   = /usr/local/mariadb
 datadir   = /home/mariadb
-pid-file  = /home/mariadb/mariadb.pid
-socket    = /tmp/mariadb.sock
+pid-file  = /run/mariadb/mariadb.pid
+socket    = /run/mariadb/mariadb.sock
 port      = 3306
 skip-name-resolve
 log_error = /home/mariadb/mariadb.err
@@ -5230,7 +5230,7 @@ innodb_io_capacity_max = 2000
 innodb_read_io_threads  = 8
 innodb_write_io_threads = 8
 table_open_cache  = 10000
-open_files_limit  = 65535
+open_files_limit  = 200000
 tmp_table_size      = 64M
 max_heap_table_size = 64M
 slow_query_log = 1
@@ -5251,7 +5251,7 @@ EOF
 
 cat > /root/.my.cnf <<'EOF'
 [client]
-socket=/tmp/mariadb.sock
+socket=/run/mariadb/mariadb.sock
 port=3306
 default-character-set=utf8mb4
 EOF
@@ -5267,45 +5267,91 @@ Wants=network.target
 Type=simple
 User=mariadb
 Group=mariadb
+RuntimeDirectory=mariadb
+RuntimeDirectoryMode=0755
 ExecStart=/usr/local/mariadb/bin/mariadbd --defaults-file=/etc/my.cnf --bind-address=127.0.0.1
 KillMode=process
 KillSignal=SIGTERM
 TimeoutStopSec=120
 Restart=on-failure
 RestartSec=2
-LimitNOFILE=65535
+LimitNOFILE=200000
 PrivateTmp=false
 [Install]
 WantedBy=multi-user.target
 EOF
 
-  /usr/local/mariadb/scripts/mysql_install_db --defaults-file=/etc/my.cnf --basedir=/usr/local/mariadb --datadir=/home/mariadb --user=mariadb
+/usr/local/mariadb/scripts/mariadb-install-db --defaults-file=/etc/my.cnf --basedir=/usr/local/mariadb --datadir=/home/mariadb --user=mariadb
+
   systemctl daemon-reload
-  systemctl enable mariadb
+  systemctl enable mariadb >/dev/null 2>&1 || true
   systemctl start mariadb
-  cd ..
+
+
+  SOCK="/run/mariadb/mariadb.sock"
+
+
+  if [ -f /etc/my.cnf ]; then
+    _sock_from_cnf="$(awk -F= '
+      BEGIN{sec=""}
+      /^\[/{sec=$0}
+      sec=="[client]" && $1 ~ /^[ \t]*socket[ \t]*$/ {gsub(/[ \t]/,"",$2); print $2; exit}
+    ' /etc/my.cnf 2>/dev/null)"
+    [ -n "$_sock_from_cnf" ] && SOCK="$_sock_from_cnf"
+  fi
+
+  for i in {1..80}; do
+    [ -S "$SOCK" ] && break
+    sleep 0.25
+  done
+
+  if [ ! -S "$SOCK" ]; then
+    echo "[setup][ERROR] MariaDB socket not ready: $SOCK"
+    echo "---- systemctl status mariadb ----"
+    systemctl status mariadb --no-pager -l || true
+    echo "---- journalctl -u mariadb (last 120 lines) ----"
+    journalctl -u mariadb -b --no-pager -n 120 || true
+    exit 1
+  fi
+
+
+  /usr/local/mariadb/bin/mariadb-admin --protocol=SOCKET --socket="$SOCK" -uroot ping >/dev/null 2>&1 || {
+    echo "[setup][ERROR] mariadb-admin ping failed (socket=$SOCK)"
+    systemctl status mariadb --no-pager -l || true
+    journalctl -u mariadb -b --no-pager -n 120 || true
+    exit 1
+  }
+
+  cd .. || exit 1
   set +H
-  /usr/local/mariadb/bin/mysql -uroot --protocol=SOCKET <<SQL
--- 设置 root@localhost 密码
+
+
+  /usr/local/mariadb/bin/mariadb -uroot --protocol=SOCKET --socket="$SOCK" <<SQL
+
 ALTER USER 'root'@'localhost'
   IDENTIFIED VIA unix_socket
   OR mysql_native_password USING PASSWORD('${MYSQL_PASS}');
 
--- 删除匿名用户
 DROP USER IF EXISTS ''@'localhost';
 DROP USER IF EXISTS ''@'%';
 
--- 禁止 root 远程登录
 DROP USER IF EXISTS 'root'@'%';
 DROP USER IF EXISTS 'root'@'127.0.0.1';
 DROP USER IF EXISTS 'root'@'::1';
 
--- 删除 test 数据库及其权限
 DROP DATABASE IF EXISTS test;
 
 FLUSH PRIVILEGES;
 SQL
+
+ 
+  if [ $? -ne 0 ]; then
+    echo "[setup][ERROR] mariadb init SQL failed"
+    exit 1
+  fi
+
   echo -e "\n✅ MariaDB 初始化完成，root 密码：\033[1;32m${MYSQL_PASS}\033[0m"
+
 
   cd "$WNMPDIR"
   
