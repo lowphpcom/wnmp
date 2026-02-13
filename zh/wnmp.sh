@@ -1450,19 +1450,24 @@ _wnmp_nginx_ensure_https_core() {
 
   if ! grep -qE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl;[[:space:]]*$' "$conf"; then
 
-    local insert_listens
-    insert_listens=$'    listen 80;\n'\
-$'    listen 443 ssl;\n'\
-$'    listen [::]:443 ssl;\n'\
-$'    #listen 443 quic;\n'\
-$'    #listen [::]:443 quic;'
-
     if grep -qE '^[[:space:]]*listen[[:space:]]+80;[[:space:]]*$' "$conf"; then
-      sed -i "0,/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/{
-s/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/${insert_listens}/
+      # 替换第一处 listen 80; 为多行 listen（避免 sed s/// 被换行打断）
+      sed -i "0,/^[[:space:]]*listen[[:space:]]\+80;[[:space:]]*$/{/^[[:space:]]*listen[[:space:]]\+80;[[:space:]]*$/c\
+    listen 80;\
+    listen 443 ssl;\
+    listen [::]:443 ssl;\
+    #listen 443 quic;\
+    #listen [::]:443 quic;
 }" "$conf"
     else
-      sed -i "0,/server[[:space:]]*{/s/server[[:space:]]*{/server{\n${insert_listens}\n/" "$conf"
+      # 若没有 listen 80; 则在第一个 server{ 后插入多行 listen
+      sed -i "0,/^[[:space:]]*server[[:space:]]*{[[:space:]]*$/{/^[[:space:]]*server[[:space:]]*{[[:space:]]*$/a\
+    listen 80;\
+    listen 443 ssl;\
+    listen [::]:443 ssl;\
+    #listen 443 quic;\
+    #listen [::]:443 quic;
+}" "$conf"
     fi
   fi
 
@@ -1474,12 +1479,13 @@ s/^[[:space:]]*listen[[:space:]]\\+80;[[:space:]]*$/${insert_listens}/
   fi
 
   if ! grep -qE '^[[:space:]]*add_header[[:space:]]+Alt-Svc[[:space:]]+' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" '    #add_header Alt-Svc 'h3=\":443\"; ma=86400' always;'
+    _wnmp_nginx_inject_after_server_name "$conf" '    #add_header Alt-Svc '\''h3=":443"; ma=86400'\'' always;'
   fi
   if ! grep -qE '^[[:space:]]*add_header[[:space:]]+QUIC-Status[[:space:]]+' "$conf"; then
-    _wnmp_nginx_inject_after_server_name "$conf" '   #add_header QUIC-Status \$http3 always;'
+    _wnmp_nginx_inject_after_server_name "$conf" '    #add_header QUIC-Status $http3 always;'
   fi
 }
+
 
 
 _wnmp_nginx_set_ssl_paths_devssl() {
