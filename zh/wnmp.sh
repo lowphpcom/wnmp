@@ -3593,8 +3593,8 @@ select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     "不安装php") php_version='0'; break ;;
     "php8.2") php_version='8.2.30'; break ;;
     "php8.3") php_version='8.3.30'; break ;;
-    "php8.4") php_version='8.4.17'; break ;;
-    "php8.5") php_version='8.5.2'; break ;;
+    "php8.4") php_version='8.4.18'; break ;;
+    "php8.5") php_version='8.5.3'; break ;;
     *) echo "无效选项 $REPLY";;
   esac
 done
