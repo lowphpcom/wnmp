@@ -3147,7 +3147,7 @@ dir_path="/root/.acme.sh"
 acme_bin="/root/.acme.sh/acme.sh"
 
 THRESH_IP_DAYS=1
-THRESH_DOMAIN_DAYS=1
+THRESH_DOMAIN_DAYS=2
 
 SSL_BASE="/usr/local/nginx/ssl"
 IP_SSL_DIR="$SSL_BASE/default"
@@ -4020,7 +4020,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.29.6.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.29.7.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
