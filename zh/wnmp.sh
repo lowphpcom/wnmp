@@ -741,20 +741,15 @@ fi
       _wget_proxy_env_off
       echo "[$label][INFO] 已选择直连：强制直连（不使用代理）"
 
-    elif [[ "${IS_CN:-0}" -eq 0 ]]; then
-      USE_SOCKS=0
-      _wget_proxy_env_off
-      echo "[$label][INFO] 非大陆IP：强制直连（不使用代理）"
-
     else
     
       if _ensure_socks_ready; then
         USE_SOCKS=1
-        echo "[$label][INFO] 大陆IP：SSH 隧道可用，使用 socks5 代理下载"
+        echo "[$label][INFO] 隧道可用，使用 socks5 代理下载"
       else
         USE_SOCKS=0
         _wget_proxy_env_off
-        echo "[$label][WARN] 大陆IP：SSH 隧道不可用，尝试直连下载"
+        echo "[$label][WARN] 隧道不可用，尝试直连下载"
       fi
     fi
 
@@ -3514,14 +3509,12 @@ is_lan
 detect_cn_ip || true
 aptinit
 
-if [[ "$IS_CN" -eq 1 ]]; then
-    enable_proxy
+enable_proxy
 
-    if [[ "${PROXY_MODE:-}" != "DIRECT" ]]; then
-      if ! proxy_healthcheck; then
-        disable_proxy
-      fi
-    fi
+if [[ "${PROXY_MODE:-}" != "DIRECT" ]]; then
+  if ! proxy_healthcheck; then
+    disable_proxy
+  fi
 fi
 
 
@@ -3637,7 +3630,7 @@ if [[ "$IS_LAN" -eq 1 ]]; then
 apt --fix-broken install -y
 apt autoremove -y
 apt update
-apt install -y libtool make gcc net-tools libc-ares-dev apache2-utils git liblzma-dev libedit-dev libncurses5-dev libnuma-dev libaio-dev libsnappy-dev libicu-dev liblz4-dev screen build-essential liburing-dev liburing2 \
+apt install -y libtool automake make gcc net-tools libc-ares-dev apache2-utils git liblzma-dev libedit-dev libncurses5-dev libnuma-dev libaio-dev libsnappy-dev libicu-dev liblz4-dev screen build-essential liburing-dev liburing2 \
   libzstd-dev wget curl m4 autoconf re2c pkg-config libxml2-dev libsodium-dev libcurl4-openssl-dev \
   libbz2-dev openssl libssl-dev libtidy-dev libxslt1-dev libsqlite3-dev zlib1g-dev \
   libpng-dev libjpeg-dev libwebp-dev libonig-dev libzip-dev libpcre2-8-0 libpcre2-dev \
@@ -3651,6 +3644,16 @@ export CURL_RETRY_DELAY=2
 ensure_group www
 ensure_user  www www
 
+cd /usr/local/src
+rm -rf liburing
+git clone https://github.com/axboe/liburing.git
+cd liburing
+git checkout liburing-2.9
+
+./configure --prefix=/usr/local
+make -j"$(nproc)"
+make install
+ldconfig
 
 if [ "$php_version" != "0" ]; then
   cd "$WNMPDIR"
