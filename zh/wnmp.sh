@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WNMP Setup Script
-# Copyright (C) 2025 wnmp.org
+# Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
 # Version: 1.39
@@ -603,7 +603,10 @@ git_clone_wnmp() {
   return 1
 }
 
-
+clear_php_tool_proxy() {
+      pecl config-set http_proxy "" >/dev/null 2>&1 || true
+      pear config-set http_proxy "" >/dev/null 2>&1 || true
+}
 
 download_with_mirrors() {
   local url="$1"
@@ -666,9 +669,8 @@ download_with_mirrors() {
   }
   _wget_proxy_env_off() {
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy WGETRC
-    rm -f /root/.pearrc /usr/local/php/etc/pear.conf
   }
-
+  
 
   _aria2_proxy_opts() {
     if (( USE_SOCKS == 1 )); then
@@ -996,7 +998,7 @@ enable_proxy() {
   local arg_mode="${1:-}"
 
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy
-
+  clear_php_tool_proxy
   if ! command -v sshpass >/dev/null 2>&1; then
     
     if command -v apt-get >/dev/null 2>&1; then
@@ -1209,8 +1211,8 @@ disable_proxy() {
 
 
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy || true
+    clear_php_tool_proxy
 
-  
     git config --global --unset-all http.proxy  2>/dev/null || true
     git config --global --unset-all https.proxy 2>/dev/null || true
     git config --global --unset-all http.https://github.com.proxy  2>/dev/null || true
@@ -3976,7 +3978,6 @@ fi
   /usr/local/php/bin/pie install phpredis/phpredis
   /usr/local/php/bin/pie install arnaud-lb/inotify
   /usr/local/php/bin/pie install apcu/apcu
-  /usr/local/php/bin/pecl channel-update pecl.php.net
 
 else
   echo '不安装php'
@@ -5457,7 +5458,7 @@ auto_optimize_services() {
   echo "================= 优 化 完 成 ================="
 }
 
-_wget_proxy_env_off
+disable_proxy
 
 auto_optimize_services
 
