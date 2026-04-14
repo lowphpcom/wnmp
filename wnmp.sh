@@ -665,6 +665,7 @@ download_with_mirrors() {
   }
   _wget_proxy_env_off() {
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy WGETRC
+    rm -f /root/.pearrc /usr/local/php/etc/pear.conf
   }
 
 
@@ -3976,7 +3977,7 @@ fi
   /usr/local/php/bin/pie install phpredis/phpredis
   /usr/local/php/bin/pie install arnaud-lb/inotify
   /usr/local/php/bin/pie install apcu/apcu
- 
+  /usr/local/php/bin/pecl channel-update pecl.php.net
 
 else
   echo 'Do not install PHP'
