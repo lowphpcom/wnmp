@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.39"
+green  " [init] Version: 1.40"
 green  "============================================================"
 echo
 sleep 1
@@ -4025,7 +4025,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.29.7.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.29.8.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
