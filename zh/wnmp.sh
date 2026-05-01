@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.40
+# Version: 1.41
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.40"
+green  " [init] Version: 1.41"
 green  "============================================================"
 echo
 sleep 1
@@ -75,7 +75,7 @@ usage() {
   wnmp               # 正常安装
   wnmp status        # 查看状态
   wnmp sshkey        # ssh密钥登录
-  wnmp webdav        # 添加webdav账号
+  wnmp webdav [域名] # 添加webdav账号
   wnmp vhost         # 创建虚拟主机（含证书）
   wnmp tool          # 仅做内核/网络调优
   wnmp restart       # 重启服务
@@ -1307,12 +1307,138 @@ proxy_healthcheck() {
 
 
 
+wnmp_webdav_conf_has_ssl() {
+  local conf="$1"
+  local cert key
+
+  grep -qE '^[[:space:]]*listen[[:space:]]+([^;[:space:]]+:)?443([^;]*[[:space:]])?ssl([^;]*)?;' "$conf" || return 1
+  cert="$(awk '$1=="ssl_certificate" {gsub(/;$/, "", $2); print $2; exit}' "$conf")"
+  key="$(awk '$1=="ssl_certificate_key" {gsub(/;$/, "", $2); print $2; exit}' "$conf")"
+
+  [[ -n "$cert" && -n "$key" ]] || return 1
+  [[ -s "$cert" && -s "$key" ]] || return 1
+}
+
+wnmp_webdav_conf_has_location() {
+  local conf="$1"
+  grep -qE '^[[:space:]]*location[[:space:]]+=+[[:space:]]+/webdav[[:space:]]*\{' "$conf" &&
+    grep -qE '^[[:space:]]*location[[:space:]]+\^~[[:space:]]+/webdav/[[:space:]]*\{' "$conf"
+}
+
+wnmp_webdav_remove_location_blocks() {
+  local conf="$1"
+  local tmp_out
+  tmp_out="$(mktemp)"
+
+  awk '
+    function brace_delta(s, t) {
+      t=s
+      return gsub(/\{/, "{", t) - gsub(/\}/, "}", s)
+    }
+    BEGIN { skipping=0; depth=0 }
+    {
+      if (skipping==0 && ($0 ~ /^[[:space:]]*location[[:space:]]+=+[[:space:]]+\/webdav[[:space:]]*\{/ || $0 ~ /^[[:space:]]*location[[:space:]]+\^~[[:space:]]+\/webdav\/[[:space:]]*\{/)) {
+        skipping=1
+        depth=brace_delta($0)
+        if (depth <= 0) skipping=0
+        next
+      }
+      if (skipping==1) {
+        depth += brace_delta($0)
+        if (depth <= 0) skipping=0
+        next
+      }
+      print $0
+    }
+  ' "$conf" > "$tmp_out" && mv "$tmp_out" "$conf"
+  local rc=$?
+  rm -f "$tmp_out" 2>/dev/null || true
+  return "$rc"
+}
+
+wnmp_webdav_inject_location() {
+  local conf="$1"
+  local tmp_block tmp_out
+
+  wnmp_webdav_conf_has_location "$conf" && return 0
+
+  wnmp_webdav_remove_location_blocks "$conf" || return 1
+
+  tmp_block="$(mktemp)"
+  tmp_out="$(mktemp)"
+  cat > "$tmp_block" <<'EOF'
+
+    location = /webdav {
+        return 301 /webdav/;
+    }
+
+    location ^~ /webdav/ {
+        if ($server_port != 443) { return 403; }
+        set $domain $host;
+        if ($host ~* "^www\.(.+)$") {
+            set $domain $1;
+        }
+        set $site_root /home/wwwroot/$domain;
+        alias $site_root/;
+
+        types { }
+
+        default_type application/octet-stream;
+        auth_basic "WebDAV Authentication";
+        auth_basic_user_file /home/passwd/.$host;
+        dav_methods PUT DELETE MKCOL COPY MOVE;
+        dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
+        create_full_put_path on;
+        dav_access user:rw group:rw all:r;
+        dav_ext_lock zone=webdav_locks;
+
+    }
+EOF
+
+  awk -v BLOCK="$tmp_block" '
+    function brace_delta(s, t) {
+      t=s
+      return gsub(/\{/, "{", t) - gsub(/\}/, "}", s)
+    }
+    function print_block() {
+      while ((getline line < BLOCK) > 0) print line
+      close(BLOCK)
+    }
+    BEGIN { in_server=0; depth=0; inserted=0 }
+    {
+      if (inserted==0 && in_server==1 && depth==1 && $0 ~ /^[[:space:]]*}[[:space:]]*$/) {
+        print_block()
+        inserted=1
+      }
+      print $0
+      if (inserted==0) {
+        if (in_server==0 && $0 ~ /^[[:space:]]*server[[:space:]]*{[[:space:]]*$/) {
+          in_server=1
+          depth=1
+        } else if (in_server==1) {
+          depth += brace_delta($0)
+          if (depth <= 0) in_server=0
+        }
+      }
+    }
+    END { exit inserted ? 0 : 1 }
+  ' "$conf" > "$tmp_out" && mv "$tmp_out" "$conf"
+  local rc=$?
+  rm -f "$tmp_block" "$tmp_out" 2>/dev/null || true
+  return "$rc"
+}
+
 webdav() {
 
   local domain="${1:-${domain:-}}"
   local user pass passwd_file ans
 
   if [[ -z "$domain" ]]; then
+    read -rp "请输入要添加 WebDAV 的域名：" domain || true
+  fi
+  domain="${domain,,}"
+  if [[ -z "$domain" ]]; then
+    echo "[webdav][ERROR] 域名不能为空。用法：wnmp webdav example.com"
     return 1
   fi
 
@@ -1335,6 +1461,11 @@ webdav() {
     return 1
   fi
 
+  if ! wnmp_webdav_conf_has_ssl "$conf_path"; then
+    echo "[webdav][ERROR] 当前站点没有配置 ssl 证书，无法开启 WebDAV。请先为 ${domain_lc} 配置 SSL 证书。"
+    return 1
+  fi
+
   local NGINX_BIN=""
   if command -v nginx >/dev/null 2>&1; then
     NGINX_BIN="$(command -v nginx)"
@@ -1349,6 +1480,16 @@ webdav() {
 
   backup="${conf_path}.bak-$(date +%Y%m%d-%H%M%S)"
   cp -a "$conf_path" "$backup" || { echo "[webdav][ERROR] 备份失败：$backup"; return 1; }
+  if wnmp_webdav_conf_has_location "$conf_path"; then
+    echo "[webdav] 配置中已存在 WebDAV location，跳过注入。"
+  else
+    wnmp_webdav_inject_location "$conf_path" || {
+      echo "[webdav][ERROR] 注入 WebDAV 配置失败，回滚到：$backup"
+      cp -a "$backup" "$conf_path" >/dev/null 2>&1 || true
+      return 1
+    }
+    echo "[webdav] 已补充 WebDAV location 配置。"
+  fi
 
   if "$NGINX_BIN" -t; then
     if systemctl >/dev/null 2>&1; then
@@ -1449,7 +1590,7 @@ _wnmp_nginx_ensure_https_core() {
   if ! grep -qE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl;[[:space:]]*$' "$conf"; then
 
     if grep -qE '^[[:space:]]*listen[[:space:]]+80;[[:space:]]*$' "$conf"; then
-      # 替换第一处 listen 80; 为多行 listen（避免 sed s/// 被换行打断）
+    
       sed -i "0,/^[[:space:]]*listen[[:space:]]\+80;[[:space:]]*$/{/^[[:space:]]*listen[[:space:]]\+80;[[:space:]]*$/c\
     listen 80;\
     listen 443 ssl;\
@@ -1458,7 +1599,7 @@ _wnmp_nginx_ensure_https_core() {
     #listen [::]:443 quic;
 }" "$conf"
     else
-      # 若没有 listen 80; 则在第一个 server{ 后插入多行 listen
+   
       sed -i "0,/^[[:space:]]*server[[:space:]]*{[[:space:]]*$/{/^[[:space:]]*server[[:space:]]*{[[:space:]]*$/a\
     listen 80;\
     listen 443 ssl;\
@@ -3490,7 +3631,7 @@ for arg in "$@"; do
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
      status) status; exit 0 ;;
-     webdav) webdav; exit 0 ;;
+     webdav) shift; webdav "${1:-}"; exit 0 ;;
      sshkey) sshkey; exit 0 ;;
      remove) remove; exit 0 ;;
      renginx) renginx; exit 0 ;;
@@ -5148,7 +5289,7 @@ if [ "$mariadb_version" != "0" ]; then
   mkdir -p /home/mariadb
   mkdir -p /home/mariadb/binlog
   chown -R mariadb:mariadb /home/mariadb
-  
+
 
   if [ ! -f "$WNMPDIR/mariadb-$mariadb_version.tar.gz" ]; then
     rm -rf "mariadb-$mariadb_version"
