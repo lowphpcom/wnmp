@@ -3630,7 +3630,7 @@ for arg in "$@"; do
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
      status) status; exit 0 ;;
-     webdav) shift; webdav "${1:-}"; exit 0 ;;
+     webdav) shift; if webdav "${1:-}"; then exit 0; else exit 1; fi ;;
      sshkey) sshkey; exit 0 ;;
      remove) remove; exit 0 ;;
      renginx) renginx; exit 0 ;;
