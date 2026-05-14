@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.41
+# Version: 1.42
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.41"
+green  " [init] Version: 1.42"
 green  "============================================================"
 echo
 sleep 1
@@ -3728,10 +3728,10 @@ php_version='0'
 select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
     "不安装php") php_version='0'; break ;;
-    "php8.2") php_version='8.2.30'; break ;;
-    "php8.3") php_version='8.3.30'; break ;;
-    "php8.4") php_version='8.4.20'; break ;;
-    "php8.5") php_version='8.5.5'; break ;;
+    "php8.2") php_version='8.2.31'; break ;;
+    "php8.3") php_version='8.3.31'; break ;;
+    "php8.4") php_version='8.4.21'; break ;;
+    "php8.5") php_version='8.5.6'; break ;;
     *) echo "无效选项 $REPLY";;
   esac
 done
@@ -4166,7 +4166,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.30.0.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.0.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
