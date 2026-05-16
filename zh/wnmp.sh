@@ -2517,6 +2517,26 @@ purge_php() {
   apt purge -y 'php*' 2>/dev/null || true
   apt autoremove -y 2>/dev/null || true
 }
+
+ensure_mariadb_debian_compat_config() {
+  mkdir -p /etc/mysql/conf.d
+  mkdir -p /etc/mysql/mariadb.conf.d
+
+  if [ ! -f /etc/mysql/mariadb.cnf ]; then
+    cat > /etc/mysql/mariadb.cnf <<'EOF'
+# MariaDB Debian package compatibility file.
+# WNMP uses /etc/my.cnf as the real MariaDB config.
+#
+# Do not delete this file, otherwise apt/dpkg may fail when configuring mariadb-common.
+
+[client-server]
+
+!includedir /etc/mysql/conf.d/
+!includedir /etc/mysql/mariadb.conf.d/
+EOF
+  fi
+}
+
 purge_mariadb() {
   set -euo pipefail
 
@@ -2597,6 +2617,7 @@ purge_mariadb() {
 
     apt purge -y 'mariadb*' 'mysql-*' 2>/dev/null || true
     apt autoremove -y 2>/dev/null || true
+    ensure_mariadb_debian_compat_config
 
     if [ "$backup_done" -eq 1 ]; then
       echo "[done] MariaDB 已清理，备份保存在：${backup_file}"
@@ -5788,6 +5809,7 @@ esac
 
 if [ "$mariadb_version" != "0" ]; then
   purge_mariadb || true
+  ensure_mariadb_debian_compat_config
 
   cd "$WNMPDIR"
 
