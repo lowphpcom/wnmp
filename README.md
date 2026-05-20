@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.44 2026-05-20 Added `wnmp vhost del` for deleting a virtual host after entering a domain name. The command can back up Nginx configuration, SSL files, and site data to `/home/wnmp_site_back/<domain>` before deleting `/usr/local/nginx/vhost`, `/usr/local/nginx/ssl`, and `/home/wwwroot` entries, then restarts Nginx. Also improved `wnmp status` service detection to match systemd loaded units more reliably.
+
 v1.43 2026-05-16 Added `wnmp update nginx` and `wnmp update php` for standalone Nginx and PHP upgrades. The update command backs up existing configuration, installs required build dependencies, lets you enter the target version, recompiles the selected component, restarts the related service, and cleans up temporary proxy tunnel settings after completion.
 
 v1.42 2026-05-13 nginx-1.30.1 stable and nginx-1.31.0 mainline versions have been released, with fixes for HTTP/2 request injection vulnerability in the ngx_http_proxy_module (CVE-2026-42926), buffer overflow vulnerability in the ngx_http_rewrite_module (CVE-2026-42945), buffer overread vulnerabilities in the ngx_http_scgi_module and ngx_http_uwsgi_module (CVE-2026-42946), buffer overread vulnerability in the ngx_http_charset_module (CVE-2026-42934), address spoofing vulnerability in HTTP/3 (CVE-2026-40460), and use-after-free vulnerability in OCSP requests to resolver (CVE-2026-40701). Additionally, nginx-1.31.0 mainline version features support for HTTP forward proxy. At the same time, update PHP to the latest versions: 8.5.6, 8.4.21, 8.3.21, and 8.2.21

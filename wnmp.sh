@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.43
+# Version: 1.44
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.43"
+green  " [init] Version: 1.44"
 green  "============================================================"
 echo
 sleep 1
@@ -77,6 +77,7 @@ Usage:
   wnmp sshkey        # Configure SSH key login
   wnmp webdav [domain]        # Add a WebDAV account
   wnmp vhost         # Create a virtual host (with SSL certificate)
+  wnmp vhost del     # Delete a virtual host
   wnmp tool          # Kernel / network tuning only
   wnmp restart       # Restart services
   wnmp update nginx  # Update Nginx, then enter the target version
@@ -96,7 +97,9 @@ USAGE
 
 service_exists() {
   local svc="$1"
-  systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "${svc}.service"
+  local load_state
+  load_state="$(systemctl show "${svc}.service" --property=LoadState --value 2>/dev/null || true)"
+  [[ -n "$load_state" && "$load_state" != "not-found" ]]
 }
 
 status() {
@@ -104,7 +107,7 @@ status() {
   for svc in nginx php-fpm mariadb; do
     if service_exists "$svc"; then
       echo "▶ ${svc} status:"
-      systemctl --no-pager status "$svc"
+      systemctl --no-pager --full status "$svc" || true
       echo
     else
       echo "⚠️  ${svc} service not found, skipped."
@@ -1911,6 +1914,108 @@ download() {
   fi
 
   return 0
+}
+
+
+
+vhost_del() {
+  if ! (echo $BASH_VERSION >/dev/null 2>&1); then
+    echo "[vhost][ERROR] Please run this script using bash."; return 1
+  fi
+  set -euo pipefail
+
+  local vhost_dir="/usr/local/nginx/vhost"
+  local ssl_base="/usr/local/nginx/ssl"
+  local webroot_base="/home/wwwroot"
+  local backup_base="/home/wnmp_site_back"
+
+  local domain domain_lc bare_domain conf_path conf_domain site_root
+  read -rp "Please enter the domain name to delete: " domain
+  domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9._-]+$ ]]; then
+    echo "[vhost][ERROR] Invalid domain name."
+    return 1
+  fi
+
+  bare_domain="${domain_lc#www.}"
+  conf_path=""
+  local candidate
+  for candidate in \
+    "$vhost_dir/${domain_lc}.conf" \
+    "$vhost_dir/${bare_domain}.conf" \
+    "$vhost_dir/www.${bare_domain}.conf"; do
+    if [[ -f "$candidate" ]]; then
+      conf_path="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$conf_path" ]]; then
+    conf_domain="$(basename "$conf_path" .conf)"
+  else
+    conf_domain="$domain_lc"
+  fi
+
+  site_root="$webroot_base/$bare_domain"
+
+  local -a ssl_paths=()
+  for candidate in \
+    "$ssl_base/$conf_domain" \
+    "$ssl_base/$domain_lc" \
+    "$ssl_base/$bare_domain" \
+    "$ssl_base/www.$bare_domain"; do
+    [[ -e "$candidate" ]] || continue
+    local exists=0 item
+    for item in "${ssl_paths[@]}"; do
+      [[ "$item" == "$candidate" ]] && exists=1
+    done
+    [[ "$exists" -eq 0 ]] && ssl_paths+=("$candidate")
+  done
+
+  if [[ -z "$conf_path" && ! -e "$site_root" && ${#ssl_paths[@]} -eq 0 ]]; then
+    echo "[vhost][ERROR] No site data found for: $domain_lc"
+    return 1
+  fi
+
+  echo "[vhost][WARN] The following site data will be deleted:"
+  [[ -n "$conf_path" ]] && echo "  Nginx config: $conf_path"
+  [[ -e "$site_root" ]] && echo "  Web root:     $site_root"
+  for candidate in "${ssl_paths[@]}"; do
+    echo "  SSL dir:      $candidate"
+  done
+
+  local ans backup_dir
+  read -rp "Backup site files and configuration before deleting? [Y/n] " ans
+  ans="${ans:-Y}"
+  if [[ "$ans" =~ ^[Yy]$ ]]; then
+    backup_dir="$backup_base/$domain_lc"
+    [[ -e "$backup_dir" ]] && backup_dir="${backup_dir}-$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$backup_dir/vhost" "$backup_dir/ssl" "$backup_dir/wwwroot"
+    [[ -n "$conf_path" ]] && cp -a "$conf_path" "$backup_dir/vhost/"
+    [[ -e "$site_root" ]] && cp -a "$site_root" "$backup_dir/wwwroot/"
+    for candidate in "${ssl_paths[@]}"; do
+      cp -a "$candidate" "$backup_dir/ssl/"
+    done
+    echo "[vhost][BACKUP] Saved to: $backup_dir"
+  else
+    echo "[vhost][WARN] Backup skipped. Deletion will start now."
+  fi
+
+  [[ -n "$conf_path" ]] && rm -f -- "$conf_path"
+  [[ -e "$site_root" ]] && rm -rf -- "$site_root"
+  for candidate in "${ssl_paths[@]}"; do
+    rm -rf -- "$candidate"
+  done
+
+  if /usr/local/nginx/sbin/nginx -t; then
+    systemctl restart nginx 2>/dev/null || /usr/local/nginx/sbin/nginx -s reload
+    echo "[vhost] Nginx restarted."
+  else
+    echo "[vhost][ERROR] nginx configuration check failed after deletion."
+    return 1
+  fi
+
+  echo "[vhost] Deleted: $domain_lc"
 }
 
 
@@ -4157,7 +4262,7 @@ wnmp_ssltest() {
 for arg in "$@"; do
    case "${arg}" in
      tool) tool; exit 0 ;;
-     vhost) vhost; exit 0 ;;
+     vhost) shift; if [[ "${1:-}" == "del" ]]; then vhost_del; else vhost; fi; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
      status) status; exit 0 ;;
