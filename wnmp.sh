@@ -517,10 +517,10 @@ git_clone_wnmp() {
     [[ -z "$target" ]] && target="${owner_repo##*/}"
     [[ -d "$target" ]] || return 1
 
-    # 至少要有文件
+    # Must contain at least one file
     [[ -n "$(ls -A "$target" 2>/dev/null)" ]] || return 1
 
-    # 如果是 git clone，必须有 commit
+    # If this is a git clone, it must have at least one commit
     if [[ -d "$target/.git" ]]; then
       git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
       git -C "$target" rev-list -n 1 HEAD >/dev/null 2>&1 || return 1
@@ -1470,7 +1470,7 @@ webdav() {
     conf_path="$VHOST_DIR/${domain_lc#www.}.conf"
   fi
   if [[ ! -f "$conf_path" ]]; then
-    echo "[webdav][ERROR] Configuration not found:$VHOST_DIR/${domain_lc}.conf 或 ${domain_lc#www.}.conf"
+    echo "[webdav][ERROR] Configuration not found: $VHOST_DIR/${domain_lc}.conf or ${domain_lc#www.}.conf"
     return 1
   fi
 
@@ -3020,7 +3020,7 @@ wnmp_prompt_mysql_password() {
   local pass1 pass2
 
   while :; do
-    read -rsp "请设置phpmyadmin 访问密码: " pass1
+    read -rsp "Please set the phpMyAdmin access password: " pass1
     echo
 
     if [ -z "$pass1" ]; then
@@ -3053,7 +3053,7 @@ wnmp_prompt_mysql_password() {
 
 wnmp_ensure_nginx_auth_password() {
   if ! wnmp_mysql_pass_configured; then
-    echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
+    echo "[nginx] No valid phpMyAdmin access password detected. Please set one before continuing."
     wnmp_prompt_mysql_password || return 1
   fi
 
@@ -3590,7 +3590,7 @@ wnmp_update_nginx() {
 
   nginx_version="$(wnmp_read_update_version "Nginx" "1.31.1")" || return 1
   if ! wnmp_mysql_pass_configured; then
-    echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
+    echo "[nginx] No valid phpMyAdmin access password detected. Please set one before continuing."
     wnmp_prompt_mysql_password || return 1
   fi
   wnmp_install_build_deps
@@ -6206,7 +6206,7 @@ SQL
     exit 1
   fi
 
-  echo -e "\n✅ MariaDB 初始化完成，root 密码：\033[1;32m${MYSQL_PASS}\033[0m"
+  echo -e "\nMariaDB initialization completed. Root password: \033[1;32m${MYSQL_PASS}\033[0m"
 
 
   cd "$WNMPDIR"
