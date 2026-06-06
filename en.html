@@ -17,7 +17,7 @@
         <a class="logo" href="/">
             <span class="icon">W</span>
             <span>WNMP</span>
-            <span class="version">v1.45</span>
+            <span class="version">v1.46</span>
         </a>
         <nav>
             <a href="#first" class="hover:text-cyan-600">Install</a>
@@ -79,6 +79,7 @@ bash wnmp.sh</code></div></pre>
     </section>
      
     <section style="padding:0 10px">
+        <p>v1.46 2026-06-07 PHP version updated to 8.5.7, 8.4.22</p>
         <p>v1.45 2026-05-22 Updated the default Nginx version to nginx-1.31.1. According to the official Nginx release notes, nginx-1.30.2 stable and nginx-1.31.1 mainline were released with a fix for the buffer overflow vulnerability in ngx_http_rewrite_module (CVE-2026-9256). wnmp update nginx also defaults to nginx-1.31.1 when no target version is entered. Standalone Nginx installation and update now require setting the phpMyAdmin access password before continuing; the default account remains wnmp, and the old needpasswd fallback is no longer used.</p>
         <p>v1.44 2026-05-20 Added wnmp vhost del for deleting a virtual host after entering a domain name. The command can back up Nginx configuration, SSL files, and site data to /home/wnmp_site_back/<domain> before deleting /usr/local/nginx/vhost, /usr/local/nginx/ssl, and /home/wwwroot entries, then restarts Nginx. Also improved wnmp status service detection to match systemd loaded units more reliably.</p>
         <p>v1.43 2026-05-16 Added wnmp update nginx and wnmp update php for standalone Nginx and PHP upgrades. The update command backs up existing configuration, installs required build dependencies, lets you enter the target version, recompiles the selected component, restarts the related service, and cleans up temporary proxy tunnel settings after completion.</p>
@@ -92,7 +93,7 @@ bash wnmp.sh</code></div></pre>
 
         <p>v1.38 NGINX defaults to version v1.29.5, fixes known vulnerabilities, and enables the h3 protocol.If a firewall is present, please ensure UDP port 443 is open to enable HTTP/3 properly!</p>
         <p>v1.37 Added `wnmp cf` for standalone installation to capture Nginx logs revealing genuine client IPs after Cloudflare CDN proxy, with scheduled tasks for automatic updates to the official CF IP list.</p>
-        <p>v1.36 Provides UI support for Nginx open directory clean download sites. It is not an additional program but a UI enhancement for Nginx autoindex. Simply execute `wnmp vhost` and select [yes] for the open directory option to experience it. Demo:<a href="https://bb.wnmp.org" target="_blank">https://bb.wnmp.org</a></p>
+        <p>v1.36 Provides UI support for Nginx open directory clean download sites. It is not an additional program but a UI enhancement for Nginx autoindex. Simply execute `wnmp vhost` and select [yes] for the open directory option to experience it. Demo:<a style="color:#f60" href="https://bb.wnmp.org" target="_blank">https://bb.wnmp.org</a></p>
         <p>v1.35 Added block.conf to default block common botnet scan requests, keeping Nginx logs cleaner. Added Nginx global variables so other scripts can properly detect the Nginx environment!</p>
         <p>v1.34 Added custom SSL check cron tasks `wnmp sslcheck` and `wnmp ssltest` to replace the default `acme.sh` cron job. These enable intelligent certificate renewal for short-lived domain and IP certificates. The official ACME renewal script fails to recognize the 6-day validity period for IP certificates and cannot automatically restart Nginx, resulting in failed IP certificate renewals.</p>
         <p>v1.33 Added `wnmp devssl` self-signed certificate, suitable for local development environments on Windows 11 WSL subsystem to handle HTTPS requests.</p>

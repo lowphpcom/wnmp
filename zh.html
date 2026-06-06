@@ -17,7 +17,7 @@
         <a class="logo" href="/">
             <span class="icon">W</span>
             <span>WNMP</span>
-            <span class="version">v1.45</span>
+            <span class="version">v1.46</span>
         </a>
         <nav>
             <a href="#first" class="hover:text-cyan-600">安装</a>
@@ -81,6 +81,7 @@ bash wnmp.sh</code></div></pre>
     </section>
     
     <section style="padding: 0 10px;">
+        <p>v1.46 2026-06-07 PHP版本更新8.5.7,8.4.22</p>
         <p>v1.45 2026-05-22 默认 Nginx 版本更新为 nginx-1.31.1。根据 Nginx 官方发布说明，nginx-1.30.2 稳定版和 nginx-1.31.1 主线版已发布，修复了 ngx_http_rewrite_module 中的缓冲区溢出漏洞 (CVE-2026-9256)。wnmp update nginx 在不输入目标版本号时也默认使用 nginx-1.31.1。单独安装或更新 Nginx 时，会先要求设置 phpMyAdmin 访问密码，默认账号仍为 wnmp，不再使用 needpasswd 作为默认密码。</p>
         <p>v1.44 2026-05-20 新增 wnmp vhost del，输入域名后删除对应虚拟主机。删除前可选择备份 Nginx 配置、SSL 文件和站点数据到 /home/wnmp_site_back/<域名>，随后删除 /usr/local/nginx/vhost、/usr/local/nginx/ssl、/home/wwwroot 下对应内容并重启 Nginx。同时优化 wnmp status 的服务检测方式，使其更准确匹配 systemd 已加载服务。</p>
         <p>v1.43 2026-05-16 新增 wnmp update nginx 和 wnmp update php，支持单独升级 Nginx 与 PHP。升级命令会先备份现有配置，安装所需编译依赖，按提示输入目标版本后重新编译对应组件，重启相关服务，并在完成后自动清理临时代理隧道设置</p>
@@ -90,7 +91,7 @@ bash wnmp.sh</code></div></pre>
         <p>v1.39 http3 恢复为可选配置，在网络丢包情况下不能利用linux内核bbr拥塞算法，导致静态资源请求卡顿。如需开启请取消站点nginx配置文件注释！</p>
         <p>v1.38 NGINX默认使用v1.29.5版本，修复已知漏洞并启用h3协议。如果存在防火墙，请注意开放udp协议下443端口才能正常启用http3!</p>
         <p>v1.37 新增 `wnmp cf` 可独立安装nginx日志获取真实cloudflare CDN代理后的客户端真实IP，并部署自动更新CF官方IP列表定时任务</p>
-        <p>v1.36 提供nginx 开放目录纯净下载站点UI支持，它不是额外程序，而是nginx autoindex 的UI 增强，只需要执行 `wnmp vhost` 是否公开目录选择[yes] 就可以体验。演示：<a href="https://bb.lowphp.com" target="_blank">https://bb.lowphp.com</a></p>
+        <p>v1.36 提供nginx 开放目录纯净下载站点UI支持，它不是额外程序，而是nginx autoindex 的UI 增强，只需要执行 `wnmp vhost` 是否公开目录选择[yes] 就可以体验。演示：<a  style="color:#f60" href="https://bb.wnmp.org" target="_blank">https://bb.wnmp.org</a></p>
         <p>v1.35 新增 block.conf 默认屏蔽僵尸网络扫描常见漏洞程序请求，让nginx日志更干净。加入NGINX全局变量，其他脚本程序可正常检查到NGINX环境！</p>
         <p>v1.34 新增 `wnmp sslcheck`,`wnmp ssltest` 自定义的sslcheck cron任务替换acme.sh默认cron任务，为域名和IP短效证书启用智能证书续期功能。acme官方续签脚本无法识别IP证书6天有效期，并无法自动重启nginx，导致IP证书续签失败</p>
         <p>v1.33 加入 `wnmp devssl` 自签证书，适合Win11-WSL子系统本地开发环境走HTTPS请求</p>
