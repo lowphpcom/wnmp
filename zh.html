@@ -81,7 +81,7 @@ bash wnmp.sh</code></div></pre>
     </section>
     
     <section style="padding: 0 10px;">
-        <p>v1.46 2026-06-07 PHP版本更新8.5.7,8.4.22</p>
+        <p>v1.46 2026-06-07 PHP版本更新8.5.7,8.4.22。</p>
         <p>v1.45 2026-05-22 默认 Nginx 版本更新为 nginx-1.31.1。根据 Nginx 官方发布说明，nginx-1.30.2 稳定版和 nginx-1.31.1 主线版已发布，修复了 ngx_http_rewrite_module 中的缓冲区溢出漏洞 (CVE-2026-9256)。wnmp update nginx 在不输入目标版本号时也默认使用 nginx-1.31.1。单独安装或更新 Nginx 时，会先要求设置 phpMyAdmin 访问密码，默认账号仍为 wnmp，不再使用 needpasswd 作为默认密码。</p>
         <p>v1.44 2026-05-20 新增 wnmp vhost del，输入域名后删除对应虚拟主机。删除前可选择备份 Nginx 配置、SSL 文件和站点数据到 /home/wnmp_site_back/<域名>，随后删除 /usr/local/nginx/vhost、/usr/local/nginx/ssl、/home/wwwroot 下对应内容并重启 Nginx。同时优化 wnmp status 的服务检测方式，使其更准确匹配 systemd 已加载服务。</p>
         <p>v1.43 2026-05-16 新增 wnmp update nginx 和 wnmp update php，支持单独升级 Nginx 与 PHP。升级命令会先备份现有配置，安装所需编译依赖，按提示输入目标版本后重新编译对应组件，重启相关服务，并在完成后自动清理临时代理隧道设置</p>

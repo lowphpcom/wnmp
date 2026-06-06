@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.46 2026-06-07 PHP version updated to 8.5.7, 8.4.22.
+
 v1.45 2026-05-22 Updated the default Nginx version to nginx-1.31.1. According to the official Nginx release notes, nginx-1.30.2 stable and nginx-1.31.1 mainline were released with a fix for the buffer overflow vulnerability in ngx_http_rewrite_module (CVE-2026-9256). `wnmp update nginx` also defaults to nginx-1.31.1 when no target version is entered. Standalone Nginx installation and update now require setting the phpMyAdmin access password before continuing; the default account remains `wnmp`, and the old `needpasswd` fallback is no longer used.
 
 v1.44 2026-05-20 Added `wnmp vhost del` for deleting a virtual host after entering a domain name. The command can back up Nginx configuration, SSL files, and site data to `/home/wnmp_site_back/<domain>` before deleting `/usr/local/nginx/vhost`, `/usr/local/nginx/ssl`, and `/home/wwwroot` entries, then restarts Nginx. Also improved `wnmp status` service detection to match systemd loaded units more reliably.
