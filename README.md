@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.48 2026-07-03 PHP version updated 8.5.8,8.4.23,8.3.32,8.2.32
+
 v1.47 2026-06-17 nginx-1.30.3 stable and nginx-1.31.2 mainline versions have been released, with fixes for buffer overflow vulnerability in the ngx_http_proxy_v2_module and ngx_http_grpc_module (CVE-2026-42055), and buffer overread vulnerability in the ngx_http_charset_module (CVE-2026-48142). Additionally, nginx-1.31.2 includes a fix for use-after-free vulnerability in the ngx_http_v3_module (CVE-2026-42530).
 
 v1.46 2026-06-07 PHP version updated to 8.5.7, 8.4.22.
