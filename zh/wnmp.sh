@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.47
+# Version: 1.48
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.47"
+green  " [init] Version: 1.48"
 green  "============================================================"
 echo
 sleep 1
@@ -4434,10 +4434,10 @@ php_version='0'
 select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
     "不安装php") php_version='0'; break ;;
-    "php8.2") php_version='8.2.31'; break ;;
-    "php8.3") php_version='8.3.31'; break ;;
-    "php8.4") php_version='8.4.22'; break ;;
-    "php8.5") php_version='8.5.7'; break ;;
+    "php8.2") php_version='8.2.32'; break ;;
+    "php8.3") php_version='8.3.32'; break ;;
+    "php8.4") php_version='8.4.23'; break ;;
+    "php8.5") php_version='8.5.8'; break ;;
     *) echo "无效选项 $REPLY";;
   esac
 done
