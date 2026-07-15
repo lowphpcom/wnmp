@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.48
+# Version: 1.49
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.48"
+green  " [init] Version: 1.49"
 green  "============================================================"
 echo
 sleep 1
@@ -3589,7 +3589,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.2")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.3")" || return 1
   if ! wnmp_mysql_pass_configured; then
     echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
     wnmp_prompt_mysql_password || return 1
@@ -4870,7 +4870,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.2.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.3.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
