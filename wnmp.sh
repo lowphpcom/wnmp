@@ -3,7 +3,9 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.49
+# Version: 1.50
+# Language channel: en
+WNMP_LANG="en"
 
 set -euo pipefail
 
@@ -64,7 +66,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.49"
+green  " [init] Version: 1.50"
 green  "============================================================"
 echo
 sleep 1
@@ -72,7 +74,8 @@ sleep 1
 usage() {
   cat <<'USAGE'
 Usage:
-  wnmp               # Normal installation
+  wnmp               # Show interactive menu
+  wnmp install       # Normal installation
   wnmp status        # Show service status
   wnmp sshkey        # Configure SSH key login
   wnmp webdav [domain]        # Add a WebDAV account
@@ -80,6 +83,7 @@ Usage:
   wnmp vhost del     # Delete a virtual host
   wnmp tool          # Kernel / network tuning only
   wnmp restart       # Restart services
+  wnmp update        # Update WNMP script itself
   wnmp update nginx  # Update Nginx, then enter the target version
   wnmp update php    # Update PHP, then enter the target version
   wnmp remove        # Uninstall everything
@@ -91,9 +95,154 @@ Usage:
   wnmp sslcheck      # Install Certificate Renewal Script
   wnmp ssltest       # Perform SSL detection
   wnmp cf            # Install Cloudflare real IP update task
+  wnmp fail2ban      # Install and configure fail2ban
   wnmp -h|--help     # Show help
 USAGE
 }
+configure_fail2ban() {
+  echo "=========================================="
+  echo "[+] Installing and configuring fail2ban..."
+  echo "=========================================="
+
+  export DEBIAN_FRONTEND=noninteractive
+  if command -v apt-get >/dev/null 2>&1; then
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get update >/dev/null 2>&1 || true
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get install -y fail2ban python3-systemd >/dev/null 2>&1 || \
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get install -y fail2ban python3-systemd || true
+  else
+    echo "[WARN] apt-get not found; skip fail2ban package install."
+  fi
+
+  if ! command -v fail2ban-client >/dev/null 2>&1; then
+    echo "[WARN] fail2ban-client not found; package install may have failed."
+    return 1
+  fi
+
+  local FAIL2BAN_CONFIG_DIR="/etc/fail2ban/fail2ban.d"
+  local FAIL2BAN_CONFIG_FILE="${FAIL2BAN_CONFIG_DIR}/wnmp.local"
+  local FAIL2BAN_JAIL_DIR="/etc/fail2ban/jail.d"
+  local FAIL2BAN_JAIL_FILE="${FAIL2BAN_JAIL_DIR}/wnmp-sshd.local"
+
+  install -d -m 0755 "$FAIL2BAN_CONFIG_DIR" "$FAIL2BAN_JAIL_DIR"
+  install -d -m 0755 /run/fail2ban /var/run/fail2ban 2>/dev/null || true
+
+  cat >"$FAIL2BAN_CONFIG_FILE" <<'EOF'
+[Definition]
+allowipv6 = auto
+EOF
+  cat >"$FAIL2BAN_JAIL_FILE" <<'EOF'
+[sshd]
+enabled = true
+backend = systemd
+EOF
+
+  if ! fail2ban-client -t; then
+    echo "[WARN] fail2ban configuration test failed."
+    return 1
+  fi
+
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl unmask fail2ban 2>/dev/null || true
+  systemctl reset-failed fail2ban 2>/dev/null || true
+  systemctl enable fail2ban >/dev/null 2>&1 || systemctl enable fail2ban || true
+
+  echo "[*] Starting fail2ban service..."
+  systemctl stop fail2ban 2>/dev/null || true
+  rm -f /run/fail2ban/fail2ban.sock /var/run/fail2ban/fail2ban.sock 2>/dev/null || true
+
+  if ! systemctl start fail2ban; then
+    systemctl restart fail2ban || true
+  fi
+
+  local i
+  for i in $(seq 1 30); do
+    if { [[ -S /run/fail2ban/fail2ban.sock ]] || [[ -S /var/run/fail2ban/fail2ban.sock ]]; } \
+      && fail2ban-client ping 2>/dev/null | grep -q "pong"; then
+      echo "[OK] fail2ban is configured and running."
+      echo "  - ${FAIL2BAN_CONFIG_FILE}"
+      echo "  - ${FAIL2BAN_JAIL_FILE}"
+      echo
+      fail2ban-client status sshd || true
+      return 0
+    fi
+    systemctl is-active --quiet fail2ban 2>/dev/null || systemctl start fail2ban 2>/dev/null || true
+    sleep 0.5
+  done
+
+  echo "[WARN] fail2ban configure failed or service not ready."
+  echo "[*] fail2ban service status:"
+  systemctl --no-pager --full status fail2ban 2>/dev/null || true
+  echo "[*] Recent fail2ban logs:"
+  journalctl -u fail2ban --no-pager -n 40 2>/dev/null || true
+  return 1
+}
+main_menu() {
+  echo
+  green "============================================================"
+  green " WNMP Main Menu"
+  green "============================================================"
+  cat <<'MENU'
+  1) Normal installation                 (wnmp install)
+  2) Show service status                 (wnmp status)
+  3) Configure SSH key login             (wnmp sshkey)
+  4) Add a WebDAV account                (wnmp webdav)
+  5) Create a virtual host (with SSL)    (wnmp vhost)
+  6) Delete a virtual host               (wnmp vhost del)
+  7) Kernel / network tuning only        (wnmp tool)
+  8) Restart services                    (wnmp restart)
+  9) Update Nginx                        (wnmp update nginx)
+ 10) Update PHP                          (wnmp update php)
+ 11) Uninstall everything                (wnmp remove)
+ 12) Uninstall Nginx                     (wnmp renginx)
+ 13) Uninstall PHP                       (wnmp rephp)
+ 14) Uninstall MariaDB                   (wnmp remariadb)
+ 15) Self-check and attempt to fix sshd  (wnmp fixsshd)
+ 16) Self-signed certificate             (wnmp devssl)
+ 17) Install Certificate Renewal Script  (wnmp sslcheck)
+ 18) Perform SSL detection               (wnmp ssltest)
+ 19) Install Cloudflare real IP task     (wnmp cf)
+ 20) Install and configure fail2ban      (wnmp fail2ban)
+ 21) Update WNMP script                 (wnmp update)
+  0) Exit
+MENU
+  echo
+  local choice=""
+  if [[ -r /dev/tty ]]; then
+    read -rp "Please select [0-21]: " choice </dev/tty || true
+  else
+    read -rp "Please select [0-21]: " choice || true
+  fi
+
+  case "${choice}" in
+    1) return 0 ;;
+    2) status ;;
+    3) sshkey; exit 0 ;;
+    4) webdav; exit 0 ;;
+    5) vhost; exit 0 ;;
+    6) vhost_del; exit 0 ;;
+    7) tool ;;
+    8) restart ;;
+    9) wnmp_update nginx; exit 0 ;;
+    10) wnmp_update php; exit 0 ;;
+    11) remove ;;
+    12) renginx ;;
+    13) rephp ;;
+    14) remariadb ;;
+    15) fixsshd; exit 0 ;;
+    16) devssl; exit 0 ;;
+    17) wnmp_sslcheck; exit 0 ;;
+    18) wnmp_ssltest; exit 0 ;;
+    19) cf; exit 0 ;;
+    20) configure_fail2ban; exit 0 ;;
+    21) wnmp_update; exit 0 ;;
+    0) echo "[info] Bye."; exit 0 ;;
+    *) echo "[setup] Invalid selection: ${choice}"; usage; exit 1 ;;
+  esac
+}
+
 
 service_exists() {
   local svc="$1"
@@ -3903,11 +4052,167 @@ wnmp_update_cleanup_proxy() {
   disable_proxy
 }
 
+wnmp_json_field() {
+  local json="$1" key="$2"
+  printf '%s' "$json" | tr -d '\r' | tr '\n' ' ' \
+    | sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+    | head -n1
+}
+
+wnmp_local_version() {
+  local ver="" src=""
+  for src in "${SCRIPT_PATH:-}" "${TARGET_PATH:-/usr/local/bin/wnmp}"; do
+    [[ -n "$src" && -f "$src" ]] || continue
+    ver="$(sed -n 's/^# Version:[[:space:]]*//p' "$src" 2>/dev/null | head -n1 | tr -d '\r')"
+    [[ -n "$ver" ]] && { printf '%s\n' "$ver"; return 0; }
+  done
+  printf '%s\n' "0"
+}
+
+wnmp_version_ge() {
+  # true if $1 >= $2 (version sort)
+  local a="$1" b="$2"
+  [[ -n "$a" && -n "$b" ]] || return 1
+  [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" == "$a" ]]
+}
+
+wnmp_http_get() {
+  local url="$1" out="${2:-}"
+  if command -v curl >/dev/null 2>&1; then
+    if [[ -n "$out" ]]; then
+      curl -fsSL --connect-timeout 10 --max-time 120 -o "$out" "$url"
+    else
+      curl -fsSL --connect-timeout 10 --max-time 60 "$url"
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if [[ -n "$out" ]]; then
+      wget -q -O "$out" --timeout=120 "$url"
+    else
+      wget -q -O - --timeout=60 "$url"
+    fi
+  else
+    return 127
+  fi
+}
+
+wnmp_self_update() {
+  local force=0
+  case "${1:-}" in
+    force|--force|-f) force=1 ;;
+    ""|self|script|wnmp) ;;
+    *) echo "Usage: wnmp update [nginx|php|force]"; return 1 ;;
+  esac
+
+  echo "[update] Checking WNMP script updates..."
+
+  local local_ver remote_ver json="" url="" mirror="" notes="" tmp=""
+  local lang="${WNMP_LANG:-en}"
+  local ver_url candidate
+  local -a ver_urls=(
+    "https://www.wnmp.org/version.json"
+    "https://wnmp.org/version.json"
+  )
+
+  local_ver="$(wnmp_local_version)"
+  echo "[update] Local version: ${local_ver}"
+
+  for ver_url in "${ver_urls[@]}"; do
+    json="$(wnmp_http_get "$ver_url" 2>/dev/null || true)"
+    [[ -n "$json" ]] && break
+  done
+  if [[ -z "$json" ]]; then
+    echo "[update][ERROR] Failed to fetch version.json"
+    return 1
+  fi
+
+  remote_ver="$(wnmp_json_field "$json" version)"
+  if [[ "$lang" == "zh" ]]; then
+    notes="$(wnmp_json_field "$json" notes_zh)"
+    [[ -z "$notes" ]] && notes="$(wnmp_json_field "$json" notes)"
+  else
+    notes="$(wnmp_json_field "$json" notes_en)"
+    [[ -z "$notes" ]] && notes="$(wnmp_json_field "$json" notes)"
+  fi
+  if [[ -z "$remote_ver" ]]; then
+    echo "[update][ERROR] Invalid version.json (missing version)"
+    return 1
+  fi
+  echo "[update] Remote version: ${remote_ver}"
+  if [[ -n "$notes" ]]; then
+    echo "[update] Notes: ${notes}"
+  fi
+
+  if [[ "$force" -ne 1 ]] && wnmp_version_ge "$local_ver" "$remote_ver"; then
+    echo "[update] Already up to date. (${local_ver})"
+    echo "[update] Re-run with: wnmp update force"
+    return 0
+  fi
+
+  if [[ "$lang" == "zh" ]]; then
+    url="$(wnmp_json_field "$json" url_zh)"
+    mirror="$(wnmp_json_field "$json" mirror_zh)"
+  else
+    url="$(wnmp_json_field "$json" url_en)"
+    mirror="$(wnmp_json_field "$json" mirror_en)"
+  fi
+  [[ -z "$url" ]] && url="$(wnmp_json_field "$json" url)"
+  [[ -z "$mirror" ]] && mirror="$(wnmp_json_field "$json" mirror)"
+
+  tmp="$(mktemp /tmp/wnmp-update.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap 'rm -f "$tmp"' RETURN
+
+  echo "[update] Downloading WNMP script..."
+  local ok=0
+  for candidate in "$url" "$mirror"; do
+    [[ -n "$candidate" ]] || continue
+    echo "[update] URL: $candidate"
+    if wnmp_http_get "$candidate" "$tmp"; then
+      ok=1
+      break
+    fi
+  done
+  if [[ "$ok" -ne 1 ]]; then
+    echo "[update][ERROR] Failed to download WNMP script"
+    return 1
+  fi
+
+  if ! head -n 1 "$tmp" | grep -Eq 'bash|sh'; then
+    echo "[update][ERROR] Downloaded file is not a valid WNMP script"
+    return 1
+  fi
+  if ! grep -qE '^# Version:|^# WNMP|wnmp\.org' "$tmp"; then
+    echo "[update][ERROR] Downloaded file is not a valid WNMP script"
+    return 1
+  fi
+
+  chmod +x "$tmp"
+  install -d -m 0755 /usr/local/bin
+  install -m 0755 "$tmp" "${TARGET_PATH:-/usr/local/bin/wnmp}"
+  echo "[update] Installed to: ${TARGET_PATH:-/usr/local/bin/wnmp}"
+
+  if [[ -n "${SCRIPT_PATH:-}" && "${SCRIPT_PATH}" != "${TARGET_PATH:-/usr/local/bin/wnmp}" && -e "${SCRIPT_PATH}" ]]; then
+    if cp -f "$tmp" "$SCRIPT_PATH" 2>/dev/null; then
+      chmod +x "$SCRIPT_PATH" || true
+      echo "[update] Installed to: ${SCRIPT_PATH}"
+    fi
+  fi
+
+  local new_ver
+  new_ver="$(sed -n 's/^# Version:[[:space:]]*//p' "${TARGET_PATH:-/usr/local/bin/wnmp}" 2>/dev/null | head -n1 | tr -d '\r')"
+  echo "[update] WNMP script update completed: ${new_ver:-$remote_ver}"
+  return 0
+}
+
 wnmp_update() {
   local target="${1:-}"
   case "$target" in
+    ""|self|script|wnmp|force|--force|-f)
+      wnmp_self_update "$target"
+      return $?
+      ;;
     nginx|php) ;;
-    *) echo "Usage: wnmp update nginx|php"; return 1 ;;
+    *) echo "Usage: wnmp update [nginx|php|force]"; return 1 ;;
   esac
 
   trap 'wnmp_update_cleanup_proxy' EXIT
@@ -3918,7 +4223,6 @@ wnmp_update() {
     php) wnmp_update_php ;;
   esac
 }
-
 cf() {
   set -e
 
@@ -4327,8 +4631,13 @@ wnmp_ssltest() {
 }
 
 
+if [[ $# -eq 0 ]]; then
+  main_menu
+fi
+
 for arg in "$@"; do
    case "${arg}" in
+     install) break ;;
      tool) tool; exit 0 ;;
      vhost) shift; if [[ "${1:-}" == "del" ]]; then vhost_del; else vhost; fi; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
@@ -4346,6 +4655,7 @@ for arg in "$@"; do
      sslcheck) wnmp_sslcheck; exit 0 ;;
      ssltest) wnmp_ssltest; exit 0 ;;
      cf) cf; exit 0 ;;
+     fail2ban) configure_fail2ban; exit 0 ;;
      "") ;;
      *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
    esac
@@ -6309,3 +6619,5 @@ disable_proxy
 auto_optimize_services
 
 wnmp_kernel_tune
+
+configure_fail2ban || true
