@@ -3,7 +3,9 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.49
+# Version: 1.50
+# Language channel: zh
+WNMP_LANG="zh"
 
 set -euo pipefail
 
@@ -64,7 +66,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.49"
+green  " [init] Version: 1.50"
 green  "============================================================"
 echo
 sleep 1
@@ -72,7 +74,8 @@ sleep 1
 usage() {
   cat <<'USAGE'
 用法:
-  wnmp               # 正常安装
+  wnmp               # 显示交互菜单
+  wnmp install       # 正常安装
   wnmp status        # 查看状态
   wnmp sshkey        # ssh密钥登录
   wnmp webdav [域名] # 添加webdav账号
@@ -80,6 +83,7 @@ usage() {
   wnmp vhost del     # 删除虚拟主机
   wnmp tool          # 仅做内核/网络调优
   wnmp restart       # 重启服务
+  wnmp update        # 升级 WNMP 脚本本体
   wnmp update nginx  # 升级 Nginx，下一步输入版本号
   wnmp update php    # 升级 PHP，下一步输入版本号
   wnmp remove        # 卸载
@@ -91,9 +95,154 @@ usage() {
   wnmp sslcheck      # 安装证书续签脚本
   wnmp ssltest       # 执行ssl检测
   wnmp cf            # 安装cloudflare 真实IP更新任务
+  wnmp fail2ban      # 安装并配置 fail2ban
   wnmp -h|--help     # 查看帮助
 USAGE
 }
+configure_fail2ban() {
+  echo "=========================================="
+  echo "[+] 正在安装并配置 fail2ban..."
+  echo "=========================================="
+
+  export DEBIAN_FRONTEND=noninteractive
+  if command -v apt-get >/dev/null 2>&1; then
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get update >/dev/null 2>&1 || true
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get install -y fail2ban python3-systemd >/dev/null 2>&1 || \
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+      apt-get install -y fail2ban python3-systemd || true
+  else
+    echo "[WARN] 未找到 apt-get，跳过 fail2ban 软件包安装。"
+  fi
+
+  if ! command -v fail2ban-client >/dev/null 2>&1; then
+    echo "[WARN] 未找到 fail2ban-client，软件包可能安装失败。"
+    return 1
+  fi
+
+  local FAIL2BAN_CONFIG_DIR="/etc/fail2ban/fail2ban.d"
+  local FAIL2BAN_CONFIG_FILE="${FAIL2BAN_CONFIG_DIR}/wnmp.local"
+  local FAIL2BAN_JAIL_DIR="/etc/fail2ban/jail.d"
+  local FAIL2BAN_JAIL_FILE="${FAIL2BAN_JAIL_DIR}/wnmp-sshd.local"
+
+  install -d -m 0755 "$FAIL2BAN_CONFIG_DIR" "$FAIL2BAN_JAIL_DIR"
+  install -d -m 0755 /run/fail2ban /var/run/fail2ban 2>/dev/null || true
+
+  cat >"$FAIL2BAN_CONFIG_FILE" <<'EOF'
+[Definition]
+allowipv6 = auto
+EOF
+  cat >"$FAIL2BAN_JAIL_FILE" <<'EOF'
+[sshd]
+enabled = true
+backend = systemd
+EOF
+
+  if ! fail2ban-client -t; then
+    echo "[WARN] fail2ban 配置检测失败。"
+    return 1
+  fi
+
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl unmask fail2ban 2>/dev/null || true
+  systemctl reset-failed fail2ban 2>/dev/null || true
+  systemctl enable fail2ban >/dev/null 2>&1 || systemctl enable fail2ban || true
+
+  echo "[*] 正在启动 fail2ban 服务..."
+  systemctl stop fail2ban 2>/dev/null || true
+  rm -f /run/fail2ban/fail2ban.sock /var/run/fail2ban/fail2ban.sock 2>/dev/null || true
+
+  if ! systemctl start fail2ban; then
+    systemctl restart fail2ban || true
+  fi
+
+  local i
+  for i in $(seq 1 30); do
+    if { [[ -S /run/fail2ban/fail2ban.sock ]] || [[ -S /var/run/fail2ban/fail2ban.sock ]]; } \
+      && fail2ban-client ping 2>/dev/null | grep -q "pong"; then
+      echo "[OK] fail2ban 已配置并运行。"
+      echo "  - ${FAIL2BAN_CONFIG_FILE}"
+      echo "  - ${FAIL2BAN_JAIL_FILE}"
+      echo
+      fail2ban-client status sshd || true
+      return 0
+    fi
+    systemctl is-active --quiet fail2ban 2>/dev/null || systemctl start fail2ban 2>/dev/null || true
+    sleep 0.5
+  done
+
+  echo "[WARN] fail2ban 配置失败，或服务尚未就绪。"
+  echo "[*] fail2ban 服务状态:"
+  systemctl --no-pager --full status fail2ban 2>/dev/null || true
+  echo "[*] fail2ban 最近日志:"
+  journalctl -u fail2ban --no-pager -n 40 2>/dev/null || true
+  return 1
+}
+main_menu() {
+  echo
+  green "============================================================"
+  green " WNMP 主菜单"
+  green "============================================================"
+  cat <<'MENU'
+  1) 正常安装                            (wnmp install)
+  2) 查看状态                            (wnmp status)
+  3) ssh密钥登录                         (wnmp sshkey)
+  4) 添加webdav账号                      (wnmp webdav)
+  5) 创建虚拟主机（含证书）               (wnmp vhost)
+  6) 删除虚拟主机                        (wnmp vhost del)
+  7) 仅做内核/网络调优                   (wnmp tool)
+  8) 重启服务                            (wnmp restart)
+  9) 升级 Nginx                          (wnmp update nginx)
+ 10) 升级 PHP                            (wnmp update php)
+ 11) 卸载全部                            (wnmp remove)
+ 12) 卸载 nginx                          (wnmp renginx)
+ 13) 卸载 php                            (wnmp rephp)
+ 14) 卸载 mariadb                        (wnmp remariadb)
+ 15) 自检sshd尝试修复                    (wnmp fixsshd)
+ 16) 自签证书                            (wnmp devssl)
+ 17) 安装证书续签脚本                    (wnmp sslcheck)
+ 18) 执行ssl检测                         (wnmp ssltest)
+ 19) 安装cloudflare 真实IP更新任务       (wnmp cf)
+ 20) 安装并配置 fail2ban                 (wnmp fail2ban)
+ 21) 升级 WNMP 脚本本体                   (wnmp update)
+  0) 退出
+MENU
+  echo
+  local choice=""
+  if [[ -r /dev/tty ]]; then
+    read -rp "请选择 [0-21]: " choice </dev/tty || true
+  else
+    read -rp "请选择 [0-21]: " choice || true
+  fi
+
+  case "${choice}" in
+    1) return 0 ;;
+    2) status ;;
+    3) sshkey; exit 0 ;;
+    4) webdav; exit 0 ;;
+    5) vhost; exit 0 ;;
+    6) vhost_del; exit 0 ;;
+    7) tool ;;
+    8) restart ;;
+    9) wnmp_update nginx; exit 0 ;;
+    10) wnmp_update php; exit 0 ;;
+    11) remove ;;
+    12) renginx ;;
+    13) rephp ;;
+    14) remariadb ;;
+    15) fixsshd; exit 0 ;;
+    16) devssl; exit 0 ;;
+    17) wnmp_sslcheck; exit 0 ;;
+    18) wnmp_ssltest; exit 0 ;;
+    19) cf; exit 0 ;;
+    20) configure_fail2ban; exit 0 ;;
+    21) wnmp_update; exit 0 ;;
+    0) echo "[info] 已退出。"; exit 0 ;;
+    *) echo "[setup] 无效选择: ${choice}"; usage; exit 1 ;;
+  esac
+}
+
 
 service_exists() {
   local svc="$1"
@@ -3904,11 +4053,167 @@ wnmp_update_cleanup_proxy() {
   disable_proxy
 }
 
+wnmp_json_field() {
+  local json="$1" key="$2"
+  printf '%s' "$json" | tr -d '\r' | tr '\n' ' ' \
+    | sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+    | head -n1
+}
+
+wnmp_local_version() {
+  local ver="" src=""
+  for src in "${SCRIPT_PATH:-}" "${TARGET_PATH:-/usr/local/bin/wnmp}"; do
+    [[ -n "$src" && -f "$src" ]] || continue
+    ver="$(sed -n 's/^# Version:[[:space:]]*//p' "$src" 2>/dev/null | head -n1 | tr -d '\r')"
+    [[ -n "$ver" ]] && { printf '%s\n' "$ver"; return 0; }
+  done
+  printf '%s\n' "0"
+}
+
+wnmp_version_ge() {
+  # true if $1 >= $2 (version sort)
+  local a="$1" b="$2"
+  [[ -n "$a" && -n "$b" ]] || return 1
+  [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" == "$a" ]]
+}
+
+wnmp_http_get() {
+  local url="$1" out="${2:-}"
+  if command -v curl >/dev/null 2>&1; then
+    if [[ -n "$out" ]]; then
+      curl -fsSL --connect-timeout 10 --max-time 120 -o "$out" "$url"
+    else
+      curl -fsSL --connect-timeout 10 --max-time 60 "$url"
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if [[ -n "$out" ]]; then
+      wget -q -O "$out" --timeout=120 "$url"
+    else
+      wget -q -O - --timeout=60 "$url"
+    fi
+  else
+    return 127
+  fi
+}
+
+wnmp_self_update() {
+  local force=0
+  case "${1:-}" in
+    force|--force|-f) force=1 ;;
+    ""|self|script|wnmp) ;;
+    *) echo "用法：wnmp update [nginx|php|force]"; return 1 ;;
+  esac
+
+  echo "[update] 正在检查 WNMP 脚本更新..."
+
+  local local_ver remote_ver json="" url="" mirror="" notes="" tmp=""
+  local lang="${WNMP_LANG:-en}"
+  local ver_url candidate
+  local -a ver_urls=(
+    "https://www.wnmp.org/version.json"
+    "https://wnmp.org/version.json"
+  )
+
+  local_ver="$(wnmp_local_version)"
+  echo "[update] 本地版本: ${local_ver}"
+
+  for ver_url in "${ver_urls[@]}"; do
+    json="$(wnmp_http_get "$ver_url" 2>/dev/null || true)"
+    [[ -n "$json" ]] && break
+  done
+  if [[ -z "$json" ]]; then
+    echo "[update][ERROR] 获取 version.json 失败"
+    return 1
+  fi
+
+  remote_ver="$(wnmp_json_field "$json" version)"
+  if [[ "$lang" == "zh" ]]; then
+    notes="$(wnmp_json_field "$json" notes_zh)"
+    [[ -z "$notes" ]] && notes="$(wnmp_json_field "$json" notes)"
+  else
+    notes="$(wnmp_json_field "$json" notes_en)"
+    [[ -z "$notes" ]] && notes="$(wnmp_json_field "$json" notes)"
+  fi
+  if [[ -z "$remote_ver" ]]; then
+    echo "[update][ERROR] version.json 无效（缺少 version）"
+    return 1
+  fi
+  echo "[update] 远程版本: ${remote_ver}"
+  if [[ -n "$notes" ]]; then
+    echo "[update] 更新说明: ${notes}"
+  fi
+
+  if [[ "$force" -ne 1 ]] && wnmp_version_ge "$local_ver" "$remote_ver"; then
+    echo "[update] 已是最新版本。 (${local_ver})"
+    echo "[update] 强制重装可执行: wnmp update force"
+    return 0
+  fi
+
+  if [[ "$lang" == "zh" ]]; then
+    url="$(wnmp_json_field "$json" url_zh)"
+    mirror="$(wnmp_json_field "$json" mirror_zh)"
+  else
+    url="$(wnmp_json_field "$json" url_en)"
+    mirror="$(wnmp_json_field "$json" mirror_en)"
+  fi
+  [[ -z "$url" ]] && url="$(wnmp_json_field "$json" url)"
+  [[ -z "$mirror" ]] && mirror="$(wnmp_json_field "$json" mirror)"
+
+  tmp="$(mktemp /tmp/wnmp-update.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap 'rm -f "$tmp"' RETURN
+
+  echo "[update] 正在下载 WNMP 脚本..."
+  local ok=0
+  for candidate in "$url" "$mirror"; do
+    [[ -n "$candidate" ]] || continue
+    echo "[update] URL: $candidate"
+    if wnmp_http_get "$candidate" "$tmp"; then
+      ok=1
+      break
+    fi
+  done
+  if [[ "$ok" -ne 1 ]]; then
+    echo "[update][ERROR] 下载 WNMP 脚本失败"
+    return 1
+  fi
+
+  if ! head -n 1 "$tmp" | grep -Eq 'bash|sh'; then
+    echo "[update][ERROR] 下载的文件不是有效的 WNMP 脚本"
+    return 1
+  fi
+  if ! grep -qE '^# Version:|^# WNMP|wnmp\.org' "$tmp"; then
+    echo "[update][ERROR] 下载的文件不是有效的 WNMP 脚本"
+    return 1
+  fi
+
+  chmod +x "$tmp"
+  install -d -m 0755 /usr/local/bin
+  install -m 0755 "$tmp" "${TARGET_PATH:-/usr/local/bin/wnmp}"
+  echo "[update] 已安装到: ${TARGET_PATH:-/usr/local/bin/wnmp}"
+
+  if [[ -n "${SCRIPT_PATH:-}" && "${SCRIPT_PATH}" != "${TARGET_PATH:-/usr/local/bin/wnmp}" && -e "${SCRIPT_PATH}" ]]; then
+    if cp -f "$tmp" "$SCRIPT_PATH" 2>/dev/null; then
+      chmod +x "$SCRIPT_PATH" || true
+      echo "[update] 已安装到: ${SCRIPT_PATH}"
+    fi
+  fi
+
+  local new_ver
+  new_ver="$(sed -n 's/^# Version:[[:space:]]*//p' "${TARGET_PATH:-/usr/local/bin/wnmp}" 2>/dev/null | head -n1 | tr -d '\r')"
+  echo "[update] WNMP 脚本升级完成: ${new_ver:-$remote_ver}"
+  return 0
+}
+
 wnmp_update() {
   local target="${1:-}"
   case "$target" in
+    ""|self|script|wnmp|force|--force|-f)
+      wnmp_self_update "$target"
+      return $?
+      ;;
     nginx|php) ;;
-    *) echo "用法：wnmp update nginx|php"; return 1 ;;
+    *) echo "用法：wnmp update [nginx|php|force]"; return 1 ;;
   esac
 
   trap 'wnmp_update_cleanup_proxy' EXIT
@@ -3919,7 +4224,6 @@ wnmp_update() {
     php) wnmp_update_php ;;
   esac
 }
-
 cf() {
   set -e
 
@@ -4328,8 +4632,13 @@ wnmp_ssltest() {
 }
 
 
+if [[ $# -eq 0 ]]; then
+  main_menu
+fi
+
 for arg in "$@"; do
    case "${arg}" in
+     install) break ;;
      tool) tool; exit 0 ;;
      vhost) shift; if [[ "${1:-}" == "del" ]]; then vhost_del; else vhost; fi; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
@@ -4347,6 +4656,7 @@ for arg in "$@"; do
      sslcheck) wnmp_sslcheck; exit 0 ;;
      ssltest) wnmp_ssltest; exit 0 ;;
      cf) cf; exit 0 ;;
+     fail2ban) configure_fail2ban; exit 0 ;;
      "") ;;
      *) echo "[setup] Unknown parameter: ${arg}"; usage; exit 1 ;;
    esac
@@ -6312,3 +6622,5 @@ disable_proxy
 auto_optimize_services
 
 wnmp_kernel_tune
+
+configure_fail2ban || true
