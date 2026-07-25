@@ -34,6 +34,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.50 2026-07-25 新增 wnmp 一级交互菜单；新增 wnmp fail2ban 独立安装配置 fail2ban（含默认配置修改：allowipv6 = auto，以及 sshd jail 的 backend = systemd）；新增 wnmp update 通过 https://www.wnmp.org/version.json 升级 WNMP 脚本本体（支持中英文 notes）。完整安装也可执行 wnmp install
+
 v1.49 2026-07-15 NGINX 稳定版 nginx-1.30.4 和主线版 nginx-1.31.3 已发布。这些版本修复了以下漏洞：使用带有正则表达式的 map 指令时的缓冲区溢出漏洞 (CVE-2026-42533)、使用 ngx_http_slice_module 时的内存泄露漏洞 (CVE-2026-60005) 以及使用 ngx_http_ssi_module 时的释放后使用 (use-after-free) 漏洞 (CVE-2026-56434)
 
 v1.48 2026-07-03 PHP版本更新8.5.8,8.4.23,8.3.32,8.2.32
