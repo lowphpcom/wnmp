@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.50 2026-07-25 Added an interactive level-1 menu when running wnmp. Added wnmp fail2ban to install and configure fail2ban (including default overrides: allowipv6 = auto and sshd jail with backend = systemd). Added wnmp update to self-update the WNMP script via https://www.wnmp.org/version.json (with English/Chinese notes). Full installation can also be started with wnmp install.
+
 v1.49 2026-07-15 NGINX version nginx-1.30.4 stable and nginx-1.31.3 mainline versions have been released, with fixes for buffer overflow vulnerability when using map with regex (CVE-2026-42533), memory disclosure vulnerability when using ngx_http_slice_module (CVE-2026-60005), and use-after-free vulnerability when using ngx_http_ssi_module (CVE-2026-56434).
 
 v1.48 2026-07-03 PHP version updated 8.5.8,8.4.23,8.3.32,8.2.32
