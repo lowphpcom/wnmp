@@ -4159,8 +4159,6 @@ wnmp_self_update() {
   [[ -z "$mirror" ]] && mirror="$(wnmp_json_field "$json" mirror)"
 
   tmp="$(mktemp /tmp/wnmp-update.XXXXXX)"
-  # shellcheck disable=SC2064
-  trap 'rm -f "$tmp"' RETURN
 
   echo "[update] Downloading WNMP script..."
   local ok=0
@@ -4174,15 +4172,18 @@ wnmp_self_update() {
   done
   if [[ "$ok" -ne 1 ]]; then
     echo "[update][ERROR] Failed to download WNMP script"
+    rm -f "$tmp"
     return 1
   fi
 
   if ! head -n 1 "$tmp" | grep -Eq 'bash|sh'; then
     echo "[update][ERROR] Downloaded file is not a valid WNMP script"
+    rm -f "$tmp"
     return 1
   fi
   if ! grep -qE '^# Version:|^# WNMP|wnmp\.org' "$tmp"; then
     echo "[update][ERROR] Downloaded file is not a valid WNMP script"
+    rm -f "$tmp"
     return 1
   fi
 
@@ -4201,6 +4202,7 @@ wnmp_self_update() {
   local new_ver
   new_ver="$(sed -n 's/^# Version:[[:space:]]*//p' "${TARGET_PATH:-/usr/local/bin/wnmp}" 2>/dev/null | head -n1 | tr -d '\r')"
   echo "[update] WNMP script update completed: ${new_ver:-$remote_ver}"
+  rm -f "$tmp"
   return 0
 }
 
