@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.50
+# Version: 1.51
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -66,7 +66,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.50"
+green  " [init] Version: 1.51"
 green  "============================================================"
 echo
 sleep 1
@@ -1144,7 +1144,7 @@ enable_proxy() {
   local SSH_HOSTS=(
     "51.68.174.84"
     "85.121.48.221"
-    "43.134.121.131"
+    "107.150.7.192"
   )
 
   local LOCAL_BIND="127.0.0.1"
@@ -4744,10 +4744,10 @@ php_version='0'
 select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
   case $phpselcect in
     "不安装php") php_version='0'; break ;;
-    "php8.2") php_version='8.2.32'; break ;;
-    "php8.3") php_version='8.3.32'; break ;;
-    "php8.4") php_version='8.4.23'; break ;;
-    "php8.5") php_version='8.5.8'; break ;;
+    "php8.2") php_version='8.2.33'; break ;;
+    "php8.3") php_version='8.3.33'; break ;;
+    "php8.4") php_version='8.4.24'; break ;;
+    "php8.5") php_version='8.5.9'; break ;;
     *) echo "无效选项 $REPLY";;
   esac
 done
