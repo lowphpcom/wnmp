@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.52 2026-08-06 Added SSL certificate management and Nginx reverse proxy management menus. SSL tools now scan deployed certificates under /usr/local/nginx/ssl, support renewal checks and single-domain force reissue, while reverse proxies support create, edit, delete, and list operations. Proxy configurations pass through arbitrary static resources and rewrite upstream redirects and cookie domains to keep visitors on the public domain.
+
 v1.51 2026-08-01 Updated PHP versions to 8.5.9, 8.4.24, 8.3.33, and 8.2.33. Also fixed inactive SSH tunnel proxy servers.
 
 v1.50 2026-07-25 Added an interactive level-1 menu when running wnmp. Added wnmp fail2ban to install and configure fail2ban (including default overrides: allowipv6 = auto and sshd jail with backend = systemd). Added wnmp update to self-update the WNMP script via https://www.wnmp.org/version.json (with English/Chinese notes). Full installation can also be started with wnmp install.
