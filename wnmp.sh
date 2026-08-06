@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.51
+# Version: 1.52
+# v1.52 2026-08-06: Added SSL certificate management and Nginx reverse proxy management menus, including certificate scanning/renewal controls, single-domain force reissue, proxy edit/delete/list operations, static-resource passthrough, and public-domain redirect/cookie rewriting.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -66,7 +67,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-green  " [init] Version: 1.51"
+  green  " [init] Version: 1.52"
 green  "============================================================"
 echo
 sleep 1
@@ -77,10 +78,13 @@ Usage:
   wnmp               # Show interactive menu
   wnmp install       # Normal installation
   wnmp status        # Show service status
-  wnmp sshkey        # Configure SSH key login
+  wnmp sshkey        # Manage SSH key login or restore password login
   wnmp webdav [domain]        # Add a WebDAV account
   wnmp vhost         # Create a virtual host (with SSL certificate)
   wnmp vhost del     # Delete a virtual host
+  wnmp proxy         # Manage Nginx reverse proxy entries
+  wnmp proxy edit    # Modify an existing reverse proxy
+  wnmp proxy del     # Delete a reverse proxy configuration
   wnmp tool          # Kernel / network tuning only
   wnmp restart       # Restart services
   wnmp update        # Update WNMP script itself
@@ -91,6 +95,7 @@ Usage:
   wnmp rephp         # Uninstall PHP
   wnmp remariadb     # Uninstall MariaDB
   wnmp fixsshd       # Self-check and attempt to fix sshd
+  wnmp ssl [rewrite|check|run|force [domain]] # SSL certificate management
   wnmp devssl        # Self-signed certificate
   wnmp sslcheck      # Install Certificate Renewal Script
   wnmp ssltest       # Perform SSL detection
@@ -179,6 +184,64 @@ EOF
   journalctl -u fail2ban --no-pager -n 40 2>/dev/null || true
   return 1
 }
+ssl_certificate_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " SSL Certificate Management"
+    green "============================================================"
+    cat <<'SSL_MENU'
+  1) Rewrite sslcheck and install the daily task
+  2) SSL certificate detection (report only)
+  3) Run sslcheck now (renew and install expiring certificates)
+  4) Force reissue a deployed domain certificate
+  5) Create a self-signed certificate
+  0) Back
+SSL_MENU
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "Please select [0-5]: " choice </dev/tty || true
+    else
+      read -rp "Please select [0-5]: " choice || true
+    fi
+    case "$choice" in
+      1) wnmp_sslcheck ;;
+      2) wnmp_ssltest ;;
+      3)
+        if [[ -x /root/.acme.sh/sslcheck ]]; then
+          /root/.acme.sh/sslcheck
+        else
+          echo "[ssl] sslcheck is not installed. Select option 1 first."
+        fi
+        ;;
+      4) wnmp_ssl_force_issue ;;
+      5) devssl ;;
+      0) return 0 ;;
+      *) echo "[ssl] Invalid selection: $choice" ;;
+    esac
+  done
+}
+
+ssl_certificate_command() {
+  local action="${1:-}"
+  shift || true
+  case "$action" in
+    rewrite|install|setup) wnmp_sslcheck ;;
+    check|test|detect) wnmp_ssltest ;;
+    run|renew|execute)
+      if [[ -x /root/.acme.sh/sslcheck ]]; then
+        /root/.acme.sh/sslcheck
+      else
+        echo "[ssl] sslcheck is not installed. Run: wnmp ssl rewrite"
+        return 1
+      fi
+      ;;
+    force|reissue) wnmp_ssl_force_issue "${1:-}" ;;
+    dev|devssl|self-signed) devssl ;;
+    *) ssl_certificate_menu ;;
+  esac
+}
+
 main_menu() {
   echo
   green "============================================================"
@@ -187,7 +250,7 @@ main_menu() {
   cat <<'MENU'
   1) Normal installation                 (wnmp install)
   2) Show service status                 (wnmp status)
-  3) Configure SSH key login             (wnmp sshkey)
+  3) Manage SSH login                    (wnmp sshkey)
   4) Add a WebDAV account                (wnmp webdav)
   5) Create a virtual host (with SSL)    (wnmp vhost)
   6) Delete a virtual host               (wnmp vhost del)
@@ -200,26 +263,25 @@ main_menu() {
  13) Uninstall PHP                       (wnmp rephp)
  14) Uninstall MariaDB                   (wnmp remariadb)
  15) Self-check and attempt to fix sshd  (wnmp fixsshd)
- 16) Self-signed certificate             (wnmp devssl)
- 17) Install Certificate Renewal Script  (wnmp sslcheck)
- 18) Perform SSL detection               (wnmp ssltest)
- 19) Install Cloudflare real IP task     (wnmp cf)
- 20) Install and configure fail2ban      (wnmp fail2ban)
- 21) Update WNMP script                 (wnmp update)
+ 16) SSL certificate management          (wnmp ssl)
+ 17) Install Cloudflare real IP task     (wnmp cf)
+ 18) Install and configure fail2ban      (wnmp fail2ban)
+ 19) Nginx reverse proxy management      (wnmp proxy)
+ 20) Update WNMP script                  (wnmp update)
   0) Exit
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-    read -rp "Please select [0-21]: " choice </dev/tty || true
+    read -rp "Please select [0-20]: " choice </dev/tty || true
   else
-    read -rp "Please select [0-21]: " choice || true
+    read -rp "Please select [0-20]: " choice || true
   fi
 
   case "${choice}" in
     1) return 0 ;;
     2) status ;;
-    3) sshkey; exit 0 ;;
+    3) sshkey; main_menu; exit 0 ;;
     4) webdav; exit 0 ;;
     5) vhost; exit 0 ;;
     6) vhost_del; exit 0 ;;
@@ -232,12 +294,11 @@ MENU
     13) rephp ;;
     14) remariadb ;;
     15) fixsshd; exit 0 ;;
-    16) devssl; exit 0 ;;
-    17) wnmp_sslcheck; exit 0 ;;
-    18) wnmp_ssltest; exit 0 ;;
-    19) cf; exit 0 ;;
-    20) configure_fail2ban; exit 0 ;;
-    21) wnmp_update; exit 0 ;;
+    16) ssl_certificate_menu; main_menu; exit 0 ;;
+    17) cf; exit 0 ;;
+    18) configure_fail2ban; exit 0 ;;
+    19) reverse_proxy_menu; main_menu; exit 0 ;;
+    20) wnmp_update; exit 0 ;;
     0) echo "[info] Bye."; exit 0 ;;
     *) echo "[setup] Invalid selection: ${choice}"; usage; exit 1 ;;
   esac
@@ -2608,6 +2669,329 @@ EOF
 
 
 
+reverse_proxy_list() {
+  local vhost_dir="/usr/local/nginx/vhost"
+  local conf domain upstream found=0
+
+  printf "\n%-32s %s\n" "PUBLIC DOMAIN" "UPSTREAM"
+  printf "%-32s %s\n" "--------------------------------" "----------------------------------------"
+  while IFS= read -r -d '' conf; do
+    domain="$(basename "$conf" .proxy.conf)"
+    upstream="$(awk '$1 == "proxy_pass" { gsub(/;$/, "", $2); print $2; exit }' "$conf")"
+    printf "%-32s %s\n" "$domain" "${upstream:-unknown}"
+    found=1
+  done < <(find "$vhost_dir" -maxdepth 1 -type f -name '*.proxy.conf' -print0 2>/dev/null)
+
+  [[ "$found" -eq 1 ]] || echo "[proxy] No reverse proxy configurations found."
+  echo
+}
+
+reverse_proxy_edit() {
+  local domain="${1:-}" domain_lc conf current_upstream upstream
+  local vhost_dir="/usr/local/nginx/vhost"
+
+  if [[ -z "$domain" ]]; then
+    reverse_proxy_list
+    read -rp "Enter the public domain to modify: " domain || true
+  fi
+  domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[proxy][ERROR] Invalid public domain name."
+    return 1
+  fi
+
+  conf="$vhost_dir/${domain_lc}.proxy.conf"
+  if [[ ! -f "$conf" ]]; then
+    echo "[proxy][ERROR] Reverse proxy configuration not found: $conf"
+    return 1
+  fi
+  current_upstream="$(awk '$1 == "proxy_pass" { gsub(/;$/, "", $2); print $2; exit }' "$conf")"
+  if [[ -z "$current_upstream" ]]; then
+    echo "[proxy][ERROR] Cannot read proxy_pass from: $conf"
+    return 1
+  fi
+
+  read -rp "New upstream domain or URL [${current_upstream}]: " upstream || true
+  upstream="${upstream:-$current_upstream}"
+  reverse_proxy "$domain_lc" "$upstream" --force
+}
+
+reverse_proxy_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " Nginx Reverse Proxy Management"
+    green "============================================================"
+    cat <<'PROXY_MENU'
+  1) Create reverse proxy
+  2) Modify reverse proxy
+  3) Delete reverse proxy
+  4) List reverse proxies
+  0) Back
+PROXY_MENU
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "Please select [0-4]: " choice </dev/tty || true
+    else
+      read -rp "Please select [0-4]: " choice || true
+    fi
+    case "$choice" in
+      1) reverse_proxy ;;
+      2) reverse_proxy_edit ;;
+      3) reverse_proxy_del ;;
+      4) reverse_proxy_list ;;
+      0) return 0 ;;
+      *) echo "[proxy] Invalid selection: $choice" ;;
+    esac
+  done
+}
+
+reverse_proxy_del() {
+  local vhost_dir="/usr/local/nginx/vhost"
+  local domain="${1:-}" domain_lc conf backup
+
+  if [[ -z "$domain" ]]; then
+    read -rp "Please enter the reverse proxy domain to delete: " domain || true
+  fi
+  domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[proxy][ERROR] Invalid domain name."
+    return 1
+  fi
+
+  conf="$vhost_dir/${domain_lc}.proxy.conf"
+  if [[ ! -f "$conf" ]]; then
+    echo "[proxy][ERROR] Reverse proxy configuration not found: $conf"
+    return 1
+  fi
+
+  echo "[proxy][WARN] The following reverse proxy configuration will be deleted:"
+  echo "  $conf"
+  backup="${conf}.bak-deleted-$(date +%Y%m%d-%H%M%S)"
+  cp -a "$conf" "$backup" || {
+    echo "[proxy][ERROR] Backup failed: $backup"
+    return 1
+  }
+  echo "[proxy][BACKUP] Saved to: $backup"
+
+  rm -f -- "$conf"
+
+  local nginx_bin=""
+  if command -v nginx >/dev/null 2>&1; then
+    nginx_bin="$(command -v nginx)"
+  elif [[ -x /usr/local/nginx/sbin/nginx ]]; then
+    nginx_bin="/usr/local/nginx/sbin/nginx"
+  elif [[ -x /usr/sbin/nginx ]]; then
+    nginx_bin="/usr/sbin/nginx"
+  fi
+  if [[ -z "$nginx_bin" ]]; then
+    echo "[proxy][ERROR] The nginx executable file was not found."
+    [[ -n "$backup" ]] && cp -a "$backup" "$conf" || true
+    return 1
+  fi
+
+  if ! "$nginx_bin" -t; then
+    echo "[proxy][ERROR] nginx -t failed; restoring the deleted configuration."
+    [[ -n "$backup" ]] && cp -a "$backup" "$conf" || true
+    return 1
+  fi
+
+  local reload_ok=0
+  if command -v systemctl >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null; then
+    reload_ok=1
+  elif "$nginx_bin" -s reload >/dev/null 2>&1; then
+    reload_ok=1
+  fi
+  if [[ "$reload_ok" -ne 1 ]]; then
+    echo "[proxy][ERROR] Nginx reload failed; restoring the deleted configuration."
+    [[ -n "$backup" ]] && cp -a "$backup" "$conf" || true
+    return 1
+  fi
+
+  echo "[proxy] Deleted: $domain_lc"
+}
+
+
+reverse_proxy() {
+  local public_domain="${1:-}" upstream_url="${2:-}" force="${3:-}"
+  local vhost_dir="/usr/local/nginx/vhost"
+  local scheme remainder authority target_path target_host port port_num
+  local proxy_pass_url redirect_prefix redirect_regex_host redirect_regex redirect_root_regex cookie_domain_line conf backup tmp
+
+  if [[ "$public_domain" == "del" && -z "$upstream_url" ]]; then
+    reverse_proxy_del
+    return $?
+  fi
+
+  if [[ -z "$public_domain" ]]; then
+    read -rp "Please enter the public domain for this reverse proxy: " public_domain || true
+  fi
+  public_domain="$(printf '%s' "$public_domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$public_domain" || "$public_domain" == *..* || ! "$public_domain" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[proxy][ERROR] Invalid public domain name."
+    return 1
+  fi
+
+  if [[ -z "$upstream_url" ]]; then
+    read -rp "Please enter the upstream domain or URL (for example https://origin.example.com): " upstream_url || true
+  fi
+  upstream_url="$(printf '%s' "$upstream_url" | tr -d '[:space:]')"
+  [[ -n "$upstream_url" ]] || { echo "[proxy][ERROR] The upstream domain cannot be empty."; return 1; }
+
+  if [[ "$upstream_url" != http://* && "$upstream_url" != https://* ]]; then
+    upstream_url="http://$upstream_url"
+  fi
+  if [[ "$upstream_url" == *\?* || "$upstream_url" == *\#* ]]; then
+    echo "[proxy][ERROR] Upstream query strings and fragments are not supported; enter a domain or base URL."
+    return 1
+  fi
+
+  scheme="${upstream_url%%://*}"
+  remainder="${upstream_url#*://}"
+  authority="${remainder%%/*}"
+  target_path=""
+  [[ "$remainder" == */* ]] && target_path="/${remainder#*/}"
+  if [[ -z "$authority" ]]; then
+    echo "[proxy][ERROR] The upstream domain cannot be empty."
+    return 1
+  fi
+  if [[ "$authority" =~ ^[[]([0-9A-Fa-f:.]+)[]](:([0-9]{1,5}))?$ ]]; then
+    target_host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[3]:-}"
+  elif [[ "$authority" =~ ^([A-Za-z0-9.-]+)(:([0-9]{1,5}))?$ ]]; then
+    target_host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[3]:-}"
+    if [[ "$target_host" == *..* || "$target_host" == .* || "$target_host" == *. ]]; then
+      echo "[proxy][ERROR] Invalid upstream domain name."
+      return 1
+    fi
+  else
+    echo "[proxy][ERROR] Invalid upstream domain, host, or port."
+    return 1
+  fi
+  if [[ -n "$port" ]]; then
+    port_num=$((10#$port))
+    if (( port_num < 1 || port_num > 65535 )); then
+      echo "[proxy][ERROR] Upstream port must be between 1 and 65535."
+      return 1
+    fi
+  fi
+  local path_pattern='^/[A-Za-z0-9._~/%:@!&()*+,=-]*$'
+  if [[ -n "$target_path" && ! "$target_path" =~ $path_pattern ]]; then
+    echo "[proxy][ERROR] Invalid characters in the upstream URL path."
+    return 1
+  fi
+  if [[ -n "$target_path" && "$target_path" != */ ]]; then
+    target_path="${target_path}/"
+  fi
+  if [[ "${public_domain#www.}" == "${target_host#www.}" ]]; then
+    echo "[proxy][ERROR] The public domain and upstream domain are identical; this would create a proxy loop."
+    return 1
+  fi
+
+  proxy_pass_url="${scheme}://${authority}${target_path}"
+  redirect_prefix="${proxy_pass_url}"
+  [[ -n "$target_path" && "$target_path" != */ ]] && redirect_prefix="${redirect_prefix}/"
+  [[ -z "$target_path" ]] && redirect_prefix="${scheme}://${authority}/"
+  cookie_domain_line=""
+  [[ "$target_host" != *:* ]] && cookie_domain_line="        proxy_cookie_domain ${target_host} ${public_domain};"
+  if [[ "$target_host" == *:* ]]; then
+    redirect_regex_host="\\[${target_host}\\]"
+  else
+    redirect_regex_host="${target_host//./\\.}"
+  fi
+  redirect_root_regex="~^https?://${redirect_regex_host}(?::[0-9]+)?$"
+  redirect_regex="~^https?://${redirect_regex_host}(?::[0-9]+)?(/.*)$"' $1'
+
+  mkdir -p "$vhost_dir"
+  conf="$vhost_dir/${public_domain}.proxy.conf"
+  if [[ -f "$conf" && "$force" != "--force" ]]; then
+    local answer=""
+    read -rp "A reverse proxy already exists for ${public_domain}. Overwrite it? [y/N] " answer || true
+    [[ "${answer:-N}" =~ ^[Yy]$ ]] || { echo "[proxy] Skipped."; return 0; }
+  fi
+  backup=""
+  if [[ -f "$conf" ]]; then
+    backup="${conf}.bak-$(date +%Y%m%d-%H%M%S)"
+    cp -a "$conf" "$backup" || { echo "[proxy][ERROR] Backup failed: $backup"; return 1; }
+  fi
+
+  tmp="$(mktemp "${conf}.tmp.XXXXXX")"
+  cat > "$tmp" <<EOF
+# WNMP reverse proxy: ${public_domain} -> ${proxy_pass_url}
+server {
+    listen 80;
+    server_name ${public_domain};
+
+    # One location handles every URI, including arbitrary static resources.
+    client_max_body_size 0;
+    location / {
+        proxy_pass ${proxy_pass_url};
+        proxy_http_version 1.1;
+        proxy_set_header Host "${authority}";
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$http_connection;
+        proxy_set_header Accept-Encoding \$http_accept_encoding;
+        proxy_set_header Range \$http_range;
+        proxy_set_header If-Range \$http_if_range;
+        proxy_ssl_server_name on;
+        proxy_ssl_name "${target_host}";
+        # Keep upstream redirects and cookies on the public domain.
+        proxy_redirect ${redirect_root_regex} /;
+        proxy_redirect ${redirect_regex};
+        proxy_redirect ${redirect_prefix} /;
+        proxy_redirect http://${authority}/ /;
+        proxy_redirect https://${authority}/ /;
+${cookie_domain_line}
+        proxy_buffering on;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF
+  mv -f "$tmp" "$conf"
+
+  local nginx_bin=""
+  if command -v nginx >/dev/null 2>&1; then
+    nginx_bin="$(command -v nginx)"
+  elif [[ -x /usr/local/nginx/sbin/nginx ]]; then
+    nginx_bin="/usr/local/nginx/sbin/nginx"
+  elif [[ -x /usr/sbin/nginx ]]; then
+    nginx_bin="/usr/sbin/nginx"
+  fi
+  if [[ -z "$nginx_bin" ]]; then
+    echo "[proxy][ERROR] The nginx executable file was not found."
+    if [[ -n "$backup" ]]; then cp -a "$backup" "$conf"; else rm -f -- "$conf"; fi
+    return 1
+  fi
+  if ! "$nginx_bin" -t; then
+    echo "[proxy][ERROR] nginx -t failed; restoring the previous configuration."
+    if [[ -n "$backup" ]]; then cp -a "$backup" "$conf"; else rm -f -- "$conf"; fi
+    return 1
+  fi
+
+  local reload_ok=0
+  if command -v systemctl >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null; then
+    reload_ok=1
+  elif "$nginx_bin" -s reload >/dev/null 2>&1; then
+    reload_ok=1
+  fi
+  if [[ "$reload_ok" -ne 1 ]]; then
+    echo "[proxy][ERROR] Nginx reload failed; restoring the previous configuration."
+    if [[ -n "$backup" ]]; then cp -a "$backup" "$conf"; else rm -f -- "$conf"; fi
+    return 1
+  fi
+
+  echo "[proxy][OK] Reverse proxy enabled: ${public_domain} -> ${proxy_pass_url}"
+  echo "[proxy][INFO] Configuration: ${conf}"
+}
+
+
 backup_nginx_config() {
   local nginx_dir="/usr/local/nginx"
   local conf="${nginx_dir}/nginx.conf"
@@ -2919,7 +3303,7 @@ remariadb(){
 
 }
 
-sshkey() {
+sshkey_enable() {
  
   echo
   echo "====================================================================="
@@ -3156,6 +3540,139 @@ EOF
 }
 
 
+
+
+sshkey_restore_password() {
+  local sshd_bin="" answer="" error_output=""
+  sshd_bin="$(command -v sshd 2>/dev/null || true)"
+  if [[ -z "$sshd_bin" && -x /usr/sbin/sshd ]]; then
+    sshd_bin="/usr/sbin/sshd"
+  fi
+  [[ -z "$sshd_bin" && -x /sbin/sshd ]] && sshd_bin="/sbin/sshd"
+  if [[ -z "$sshd_bin" ]]; then
+    echo "[sshkey][ERROR] sshd executable not found; install openssh-server first."
+    return 1
+  fi
+
+  echo
+  echo "[sshkey][WARN] This restores SSH password authentication, including root password login."
+  read -rp "Restore password login now? (Enter yes to confirm): " answer || true
+  if [[ "${answer,,}" != "yes" ]]; then
+    echo "[sshkey] Operation cancelled."
+    return 0
+  fi
+
+  local now="$(date +%Y%m%d-%H%M%S)"
+  local sshd_main="/etc/ssh/sshd_config"
+  local override_dir="/etc/ssh/sshd_config.d"
+  local password_override="${override_dir}/00-wnmp-password-login.conf"
+  local key_only_override="${override_dir}/zzz-root-keys-only.conf"
+  local main_backup="${sshd_main}.bak-password-login-${now}"
+  local password_backup="${password_override}.bak-${now}"
+  local key_only_backup="${key_only_override}.bak-${now}"
+  local had_password_override=0 had_key_only_override=0
+
+  [[ -f "$sshd_main" ]] || { echo "[sshkey][ERROR] SSH configuration not found: $sshd_main"; return 1; }
+  cp -a "$sshd_main" "$main_backup" || { echo "[sshkey][ERROR] Backup failed: $main_backup"; return 1; }
+  mkdir -p "$override_dir"
+  chmod 755 "$override_dir"
+
+  if [[ -f "$password_override" ]]; then
+    had_password_override=1
+    cp -a "$password_override" "$password_backup" || return 1
+  fi
+  if [[ -f "$key_only_override" ]]; then
+    had_key_only_override=1
+    cp -a "$key_only_override" "$key_only_backup" || return 1
+  fi
+
+  # Ensure WNMP's override is parsed before the main configuration and other snippets.
+  if ! grep -Eq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$' "$sshd_main"; then
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' "$sshd_main"
+  fi
+
+  cat > "$password_override" <<'EOF'
+# Managed by WNMP: restore SSH password and public-key login.
+PermitRootLogin yes
+PubkeyAuthentication yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+UsePAM yes
+EOF
+  chown root:root "$password_override"
+  chmod 0644 "$password_override"
+
+  # This file is created by sshkey_enable; retaining it would reapply key-only access.
+  rm -f -- "$key_only_override"
+
+  echo "[sshkey] Checking sshd configuration syntax (${sshd_bin} -t)..."
+  if ! error_output="$("$sshd_bin" -t 2>&1)"; then
+    echo "[sshkey][ERROR] sshd -t failed: $error_output"
+    cp -a "$main_backup" "$sshd_main"
+    if [[ "$had_password_override" -eq 1 ]]; then cp -a "$password_backup" "$password_override"; else rm -f -- "$password_override"; fi
+    if [[ "$had_key_only_override" -eq 1 ]]; then cp -a "$key_only_backup" "$key_only_override"; fi
+    return 1
+  fi
+
+  local effective
+  effective="$("$sshd_bin" -T 2>/dev/null || true)"
+  if ! grep -qx 'passwordauthentication yes' <<< "$effective" || ! grep -qx 'permitrootlogin yes' <<< "$effective"; then
+    echo "[sshkey][ERROR] Password login is not effective; restoring the previous configuration."
+    cp -a "$main_backup" "$sshd_main"
+    if [[ "$had_password_override" -eq 1 ]]; then cp -a "$password_backup" "$password_override"; else rm -f -- "$password_override"; fi
+    if [[ "$had_key_only_override" -eq 1 ]]; then cp -a "$key_only_backup" "$key_only_override"; fi
+    return 1
+  fi
+
+  local reload_ok=0
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null; then
+      reload_ok=1
+    fi
+  elif command -v service >/dev/null 2>&1; then
+    if service ssh reload 2>/dev/null || service sshd reload 2>/dev/null; then
+      reload_ok=1
+    fi
+  fi
+  if [[ "$reload_ok" -ne 1 ]]; then
+    echo "[sshkey][ERROR] SSH reload failed; restoring the previous configuration."
+    cp -a "$main_backup" "$sshd_main"
+    if [[ "$had_password_override" -eq 1 ]]; then cp -a "$password_backup" "$password_override"; else rm -f -- "$password_override"; fi
+    if [[ "$had_key_only_override" -eq 1 ]]; then cp -a "$key_only_backup" "$key_only_override"; fi
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    elif command -v service >/dev/null 2>&1; then
+      service ssh reload 2>/dev/null || service sshd reload 2>/dev/null || true
+    fi
+    return 1
+  fi
+
+  echo "[sshkey][OK] Password login has been restored."
+  echo "[sshkey][INFO] Backup of the prior main configuration: $main_backup"
+  echo "[sshkey][INFO] Set a root password first if one has not been configured: passwd root"
+}
+
+
+sshkey() {
+  local choice=""
+  echo
+  echo "================ SSH Login ================"
+  echo "  1) Enable root key-only login"
+  echo "  2) Restore password login"
+  echo "  0) Return"
+  if [[ -r /dev/tty ]]; then
+    read -rp "Please select [0-2]: " choice </dev/tty || true
+  else
+    read -rp "Please select [0-2]: " choice || true
+  fi
+
+  case "$choice" in
+    1) sshkey_enable ;;
+    2) sshkey_restore_password ;;
+    0) return 0 ;;
+    *) echo "[sshkey][ERROR] Invalid selection."; return 1 ;;
+  esac
+}
 
 
 MYSQL_PASS='needpasswd'
@@ -4299,6 +4816,7 @@ THRESH_DOMAIN_DAYS=2
 
 SSL_BASE="/usr/local/nginx/ssl"
 IP_SSL_DIR="$SSL_BASE/default"
+FORCE_DOMAIN="${WNMP_SSL_FORCE_DOMAIN:-}"
 
 
 PREFER_LOCAL_CERT=1
@@ -4307,10 +4825,12 @@ USE_ALPN_FOR_IP=0
 
 FLAG="/tmp/acme_renew_need_restart_nginx.flag"
 rm -f "$FLAG"
+force_found=0
 
 log() { echo -e "[$(date '+%F %T')] $*"; }
 
 is_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
+is_force_target() { [ -n "$FORCE_DOMAIN" ] && [ "$1" = "$FORCE_DOMAIN" ]; }
 
 nginx_stop_if_running() {
   if systemctl is-active --quiet nginx; then
@@ -4373,7 +4893,7 @@ install_cert_to_dir() {
     --fullchain-file "$ssl_dir/cert.pem" \
     --reloadcmd      "true" || true
 
-  if [ -s "$ssl_dir/key.pem" ] && [ -s "$ssl_dir/cert.pem" ] && [ -s "$ssl_dir/ca.pem" ]; then
+  if [ -s "$ssl_dir/key.pem" ] && [ -s "$ssl_dir/cert.pem" ]; then
     touch "$FLAG"
     log "✅ Installed OK: $domain"
     return 0
@@ -4430,8 +4950,13 @@ while IFS= read -r -d '' full; do
   log "  ⏳ Days remaining: $left_days"
 
   if is_ip "$primary"; then
-    if [ "$left_days" -lt "$THRESH_IP_DAYS" ]; then
-      log "🔁 IP cert needs renew (threshold=$THRESH_IP_DAYS)"
+    if [ "$left_days" -lt "$THRESH_IP_DAYS" ] || is_force_target "$primary"; then
+      if is_force_target "$primary"; then
+        force_found=1
+        log "Force reissue requested: $primary"
+      else
+        log "🔁 IP cert needs renew (threshold=$THRESH_IP_DAYS)"
+      fi
       nginx_stop_if_running
 
       issue_ok=0
@@ -4458,8 +4983,13 @@ while IFS= read -r -d '' full; do
       fi
     fi
   else
-    if [ "$left_days" -lt "$THRESH_DOMAIN_DAYS" ]; then
-      log "🔁 Domain cert needs renew (threshold=$THRESH_DOMAIN_DAYS): $primary"
+    if [ "$left_days" -lt "$THRESH_DOMAIN_DAYS" ] || is_force_target "$primary"; then
+      if is_force_target "$primary"; then
+        force_found=1
+        log "Force reissue requested: $primary"
+      else
+        log "🔁 Domain cert needs renew (threshold=$THRESH_DOMAIN_DAYS): $primary"
+      fi
       if "$acme_bin" --renew -d "$primary" --ecc --force; then
         ssl_dir="$SSL_BASE/$primary"
         install_cert_to_dir "$primary" "$ssl_dir"
@@ -4470,6 +5000,158 @@ while IFS= read -r -d '' full; do
   fi
 
 done < <(find "$dir_path" -maxdepth 1 -type d -name "*_ecc" -print0)
+
+# Certificates installed by older WNMP versions may not have an acme.sh
+# directory. Scan Nginx's deployed certificate directories so they are still
+# reported and can be brought back under acme.sh management before expiry.
+is_domain_name() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] && \
+    [[ "$value" == *.* ]] && [[ "$value" != *..* ]]
+}
+
+vhost_metadata_for_domain() {
+  local domain="$1"
+  local conf result
+
+  [ -d /usr/local/nginx/vhost ] || return 1
+
+  for conf in /usr/local/nginx/vhost/*.conf; do
+    [ -f "$conf" ] || continue
+    result="$(awk -v wanted="$domain" '
+      function reset_block() {
+        in_server=1
+        depth=0
+        root=""
+        names=""
+      }
+      /^[[:space:]]*server[[:space:]]*\{/ { reset_block() }
+      in_server {
+        if ($1 == "server_name") {
+          for (i = 2; i <= NF; i++) {
+            name=$i
+            gsub(/;/, "", name)
+            names=names " " name
+          }
+        }
+        if ($1 == "root" && root == "") {
+          root=$2
+          sub(/;.*/, "", root)
+        }
+        opens=gsub(/\{/, "{", $0)
+        closes=gsub(/\}/, "}", $0)
+        depth += opens - closes
+        if (depth <= 0) {
+          count=split(names, items, " ")
+          found=0
+          for (i = 1; i <= count; i++) {
+            if (items[i] == wanted) found=1
+          }
+          if (found && root != "") {
+            print root "\t" names
+            exit
+          }
+          in_server=0
+        }
+      }
+    ' "$conf")"
+    [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+  done
+
+  return 1
+}
+
+issue_unmanaged_domain() {
+  local domain="$1"
+  local ssl_dir="$2"
+  local force="${3:-0}"
+  local metadata webroot server_names name requested
+  local -a issue_args
+
+  metadata="$(vhost_metadata_for_domain "$domain" || true)"
+  if [ -z "$metadata" ]; then
+    log "[error] Cannot issue $domain: no matching vhost with a root directive"
+    return 1
+  fi
+
+  webroot="${metadata%%$'\t'*}"
+  server_names="${metadata#*$'\t'}"
+  if [ ! -d "$webroot" ]; then
+    log "[error] Cannot issue $domain: webroot does not exist: $webroot"
+    return 1
+  fi
+
+  issue_args=(--issue --server letsencrypt -d "$domain")
+  [ "$force" = "1" ] && issue_args+=(--force)
+  requested=" $domain "
+  for name in $server_names; do
+    if is_domain_name "$name"; then
+      case "$requested" in
+        *" $name "*) ;;
+        *) issue_args+=(-d "$name"); requested+="$name " ;;
+      esac
+    fi
+  done
+
+  log "[issue] Using webroot $webroot: $domain"
+  if "$acme_bin" "${issue_args[@]}" --webroot "$webroot" --keylength ec-256; then
+    install_cert_to_dir "$domain" "$ssl_dir"
+  else
+    log "[error] Issue failed: $domain"
+    return 1
+  fi
+}
+
+process_installed_certificate() {
+  local cert_file="$1"
+  local ssl_dir domain end_time left_days
+
+  ssl_dir="$(dirname "$cert_file")"
+  domain="$(basename "$ssl_dir")"
+
+  # The IP/default certificate is handled by the existing acme.sh record.
+  [ "$domain" = "default" ] && return 0
+  [ -d "$dir_path/${domain}_ecc" ] && return 0
+
+  log ""
+  log "=============================="
+  log "Installed Nginx cert: $domain"
+
+  end_time="$(get_end_time_from_file "$cert_file" || true)"
+  if [ -z "$end_time" ]; then
+    log "[warn] Skip: cannot read certificate: $cert_file"
+    return 1
+  fi
+
+  left_days="$(days_left_from_endtime "$end_time" || true)"
+  if [ -z "$left_days" ]; then
+    log "[warn] Skip: cannot parse end date: $end_time"
+    return 1
+  fi
+
+  log "  Expiration Date: $end_time"
+  log "  Days remaining: $left_days"
+
+  if [ "$left_days" -lt "$THRESH_DOMAIN_DAYS" ] || is_force_target "$domain"; then
+    if is_force_target "$domain"; then
+      force_found=1
+      log "Force reissue requested: $domain"
+      issue_unmanaged_domain "$domain" "$ssl_dir" 1
+    else
+      log "Unmanaged domain cert needs issue (threshold=$THRESH_DOMAIN_DAYS): $domain"
+      issue_unmanaged_domain "$domain" "$ssl_dir"
+    fi
+  fi
+}
+
+log "Scanning deployed Nginx certs under: $SSL_BASE"
+while IFS= read -r -d '' cert_file; do
+  process_installed_certificate "$cert_file"
+done < <(find "$SSL_BASE" -mindepth 2 -maxdepth 2 -type f -name cert.pem -print0 2>/dev/null)
+
+if [ -n "$FORCE_DOMAIN" ] && [ "$force_found" -eq 0 ]; then
+  log "[warn] Force target not found in managed or deployed certificates: $FORCE_DOMAIN"
+fi
 
 if [ "$found_any" -eq 0 ]; then
   log "⚠️ No *_ecc directories found under $dir_path"
@@ -4534,6 +5216,42 @@ EOF
 
     echo "[WNMP] sslcheck Enabled: Runs once daily"
     return 0
+}
+
+wnmp_ssl_force_issue() {
+  local domain="${1:-}"
+  local SSL_BASE="/usr/local/nginx/ssl"
+
+  [ -d "$SSL_BASE" ] || { echo "[ssl] Nginx SSL directory not found: $SSL_BASE"; return 1; }
+
+  if [ -z "$domain" ]; then
+    echo "[ssl] Available deployed domain certificates:"
+    while IFS= read -r -d '' cert_file; do
+      local cert_dir cert_domain
+      cert_dir="$(dirname "$cert_file")"
+      cert_domain="$(basename "$cert_dir")"
+      [ "$cert_domain" = "default" ] || printf '  %s\n' "$cert_domain"
+    done < <(find "$SSL_BASE" -mindepth 2 -maxdepth 2 -type f -name cert.pem -print0 2>/dev/null)
+
+    if [[ -r /dev/tty ]]; then
+      read -rp "Domain to force reissue: " domain </dev/tty || true
+    else
+      read -rp "Domain to force reissue: " domain || true
+    fi
+  fi
+
+  domain="${domain,,}"
+  if ! [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && "$domain" == *.* ]]; then
+    echo "[ssl] Invalid domain: $domain"
+    return 1
+  fi
+  if [ ! -s "$SSL_BASE/$domain/cert.pem" ]; then
+    echo "[ssl] No deployed certificate found for: $domain"
+    return 1
+  fi
+
+  wnmp_sslcheck || return 1
+  WNMP_SSL_FORCE_DOMAIN="$domain" /root/.acme.sh/sslcheck
 }
 
 wnmp_ssltest() {
@@ -4629,6 +5347,31 @@ wnmp_ssltest() {
 
   done < <(find "$dir_path" -maxdepth 1 -type d -name "*_ecc" -print0)
 
+  # Older installations can have deployed certificates without a matching
+  # acme.sh record. Include them in the report exactly once.
+  while IFS= read -r -d '' cert_file; do
+    local ssl_dir domain end_time left_days
+    ssl_dir="$(dirname "$cert_file")"
+    domain="$(basename "$ssl_dir")"
+
+    [ "$domain" = "default" ] && continue
+    [ -d "$dir_path/${domain}_ecc" ] && continue
+
+    end_time="$(get_end_time_from_file "$cert_file" || true)"
+    if [ -z "$end_time" ]; then
+      printf "%-30s %-10s %-8s %-12s %-24s\n" "$domain" "Nginx" "ERR" "ERR" "bad local cert"
+      continue
+    fi
+
+    left_days="$(days_left_from_endtime "$end_time" || true)"
+    if [ -z "$left_days" ]; then
+      printf "%-30s %-10s %-8s %-12s %-24s\n" "$domain" "Nginx" "LOCAL" "ERR" "bad date"
+      continue
+    fi
+
+    printf "%-30s %-10s %-8s %-12s %-24s\n" "$domain" "Nginx" "LOCAL" "$left_days" "$end_time"
+  done < <(find "$SSL_BASE" -mindepth 2 -maxdepth 2 -type f -name cert.pem -print0 2>/dev/null)
+
   echo
 }
 
@@ -4647,7 +5390,29 @@ for arg in "$@"; do
      status) status; exit 0 ;;
      update) shift; if wnmp_update "${1:-}"; then exit 0; else exit 1; fi ;;
      webdav) shift; if webdav "${1:-}"; then exit 0; else exit 1; fi ;;
-     sshkey) sshkey; exit 0 ;;
+     proxy|reverse-proxy)
+       shift
+       case "${1:-}" in
+         "") reverse_proxy_menu; exit 0 ;;
+         del|delete) shift; if reverse_proxy_del "${1:-}"; then exit 0; else exit 1; fi ;;
+         edit|modify) shift; if reverse_proxy_edit "${1:-}"; then exit 0; else exit 1; fi ;;
+         list|ls) reverse_proxy_list; exit 0 ;;
+         add|create) shift; if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
+         *) if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
+       esac
+       ;;
+     sshkey)
+       shift
+       case "${1:-}" in
+         enable|key) sshkey_enable ;;
+         restore|password|password-login) sshkey_restore_password ;;
+         *) sshkey ;;
+       esac
+       exit 0 ;;
+     ssl|sslcert|sslmanage)
+       shift
+       ssl_certificate_command "$@"
+       exit $? ;;
      remove) remove; exit 0 ;;
      renginx) renginx; exit 0 ;;
      rephp) rephp; exit 0 ;;
