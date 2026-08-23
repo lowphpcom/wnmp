@@ -3,7 +3,7 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.52
+# Version: 1.53
 # v1.52 2026-08-06：新增 SSL 证书管理和 Nginx 反向代理管理菜单，支持证书扫描/续签、单域名强制重新签发、代理修改/删除/列表、静态资源透传，以及对外域名跳转和 Cookie 域重写。
 # Language channel: zh
 WNMP_LANG="zh"
@@ -67,7 +67,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.52"
+  green  " [init] Version: 1.53"
 green  "============================================================"
 echo
 sleep 1
@@ -4255,7 +4255,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.3")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.4")" || return 1
   if ! wnmp_mysql_pass_configured; then
     echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
     wnmp_prompt_mysql_password || return 1
