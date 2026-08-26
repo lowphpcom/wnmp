@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.53
+# Version: 1.54
+# v1.54 2026-08-27：修复精简系统写入 PATH 配置时可能导致安装退出的问题；新增 Nginx、PHP、MariaDB 独立安装，收纳组件删除/升级菜单，并支持反向代理通过 Webroot HTTP-01 申请 SSL 证书。
 # v1.52 2026-08-06：新增 SSL 证书管理和 Nginx 反向代理管理菜单，支持证书扫描/续签、单域名强制重新签发、代理修改/删除/列表、静态资源透传，以及对外域名跳转和 Cookie 域重写。
 # Language channel: zh
 WNMP_LANG="zh"
@@ -27,6 +28,7 @@ IS_LAN=1
 PUBLIC_IP=""
 IS_CN=0
 PROXY_MODE=${PROXY_MODE:-}
+WNMP_INSTALL_COMPONENT="all"
 rm -rf /tmp/wnmp_proxy_choice
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 TARGET_PATH="/usr/local/bin/wnmp"
@@ -67,7 +69,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.53"
+  green  " [init] Version: 1.54"
 green  "============================================================"
 echo
 sleep 1
@@ -77,6 +79,7 @@ usage() {
 用法:
   wnmp               # 显示交互菜单
   wnmp install       # 正常安装
+  wnmp install [nginx|php|mariadb] # 单独安装一个组件
   wnmp status        # 查看状态
   wnmp sshkey        # SSH 登录设置（密钥或恢复密码）
   wnmp webdav [域名] # 添加webdav账号
@@ -85,6 +88,7 @@ usage() {
   wnmp proxy         # 管理 Nginx 反向代理
   wnmp proxy edit    # 修改已有反向代理
   wnmp proxy del     # 删除反向代理配置
+  wnmp proxy ssl [域名] # 为反向代理申请/配置 SSL 证书
   wnmp tool          # 仅做内核/网络调优
   wnmp restart       # 重启服务
   wnmp update        # 升级 WNMP 脚本本体
@@ -242,6 +246,93 @@ ssl_certificate_command() {
   esac
 }
 
+delete_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " 删除组件"
+    green "============================================================"
+    cat <<'DELETE_MENU'
+  1) 清理全部组件                      (wnmp remove)
+  2) 仅清理 Nginx                      (wnmp renginx)
+  3) 仅清理 PHP                        (wnmp rephp)
+  4) 仅清理 MariaDB                    (wnmp remariadb)
+  0) 返回
+DELETE_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "请选择 [0-4]: " choice </dev/tty || true
+    else
+      read -rp "请选择 [0-4]: " choice || true
+    fi
+    case "${choice}" in
+      1) remove ;;
+      2) renginx ;;
+      3) rephp ;;
+      4) remariadb ;;
+      0) return 0 ;;
+      *) echo "[setup] 无效选择: ${choice}" ;;
+    esac
+  done
+}
+
+upgrade_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " 升级组件"
+    green "============================================================"
+    cat <<'UPGRADE_MENU'
+  1) 升级或降级 Nginx                  (wnmp update nginx)
+  2) 升级或降级 PHP                    (wnmp update php)
+  0) 返回
+UPGRADE_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "请选择 [0-2]: " choice </dev/tty || true
+    else
+      read -rp "请选择 [0-2]: " choice || true
+    fi
+    case "${choice}" in
+      1) wnmp_update nginx; exit 0 ;;
+      2) wnmp_update php; exit 0 ;;
+      0) return 0 ;;
+      *) echo "[setup] 无效选择: ${choice}" ;;
+    esac
+  done
+}
+
+install_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " 独立安装组件"
+    green "============================================================"
+    cat <<'INSTALL_MENU'
+  1) 仅安装 Nginx                       (wnmp install nginx)
+  2) 仅安装 PHP                         (wnmp install php)
+  3) 仅安装 MariaDB                     (wnmp install mariadb)
+  0) 返回
+INSTALL_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "请选择 [0-3]: " choice </dev/tty || true
+    else
+      read -rp "请选择 [0-3]: " choice || true
+    fi
+    case "${choice}" in
+      1) WNMP_INSTALL_COMPONENT="nginx"; return 0 ;;
+      2) WNMP_INSTALL_COMPONENT="php"; return 0 ;;
+      3) WNMP_INSTALL_COMPONENT="mariadb"; return 0 ;;
+      0) return 1 ;;
+      *) echo "[setup] 无效选择: ${choice}" ;;
+    esac
+  done
+}
+
 main_menu() {
   echo
   green "============================================================"
@@ -249,56 +340,50 @@ main_menu() {
   green "============================================================"
   cat <<'MENU'
   1) 正常安装                            (wnmp install)
-  2) 查看状态                            (wnmp status)
-  3) SSH 登录设置                         (wnmp sshkey)
-  4) 添加webdav账号                      (wnmp webdav)
-  5) 创建虚拟主机（含证书）               (wnmp vhost)
-  6) 删除虚拟主机                        (wnmp vhost del)
-  7) 仅做内核/网络调优                   (wnmp tool)
-  8) 重启服务                            (wnmp restart)
-  9) 升级 Nginx                          (wnmp update nginx)
- 10) 升级 PHP                            (wnmp update php)
- 11) 卸载全部                            (wnmp remove)
- 12) 卸载 nginx                          (wnmp renginx)
- 13) 卸载 php                            (wnmp rephp)
- 14) 卸载 mariadb                        (wnmp remariadb)
- 15) 自检sshd尝试修复                    (wnmp fixsshd)
- 16) SSL 证书管理                         (wnmp ssl)
- 17) 安装cloudflare 真实IP更新任务       (wnmp cf)
- 18) 安装并配置 fail2ban                 (wnmp fail2ban)
- 19) Nginx 反向代理管理                   (wnmp proxy)
- 20) 升级 WNMP 脚本本体                   (wnmp update)
+  2) 独立安装组件                        (Nginx / PHP / MariaDB)
+  3) 查看状态                            (wnmp status)
+  4) SSH 登录设置                         (wnmp sshkey)
+  5) 添加webdav账号                      (wnmp webdav)
+  6) 创建虚拟主机（含证书）               (wnmp vhost)
+  7) 删除虚拟主机                        (wnmp vhost del)
+  8) 仅做内核/网络调优                   (wnmp tool)
+  9) 重启服务                            (wnmp restart)
+ 10) 删除组件                            (wnmp remove / renginx / rephp / remariadb)
+ 11) 升级组件                            (wnmp update nginx / update php)
+ 12) 自检sshd尝试修复                    (wnmp fixsshd)
+ 13) SSL 证书管理                        (wnmp ssl)
+ 14) 安装cloudflare 真实IP更新任务       (wnmp cf)
+ 15) 安装并配置 fail2ban                 (wnmp fail2ban)
+ 16) Nginx 反向代理管理                  (wnmp proxy)
+ 17) 升级 WNMP 脚本本体                  (wnmp update / wnmp update force)
   0) 退出
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-    read -rp "请选择 [0-20]: " choice </dev/tty || true
+      read -rp "请选择 [0-17]: " choice </dev/tty || true
   else
-    read -rp "请选择 [0-20]: " choice || true
+    read -rp "请选择 [0-17]: " choice || true
   fi
 
   case "${choice}" in
     1) return 0 ;;
-    2) status ;;
-    3) sshkey; main_menu; exit 0 ;;
-    4) webdav; exit 0 ;;
-    5) vhost; exit 0 ;;
-    6) vhost_del; exit 0 ;;
-    7) tool ;;
-    8) restart ;;
-    9) wnmp_update nginx; exit 0 ;;
-    10) wnmp_update php; exit 0 ;;
-    11) remove ;;
-    12) renginx ;;
-    13) rephp ;;
-    14) remariadb ;;
-    15) fixsshd; exit 0 ;;
-    16) ssl_certificate_menu; main_menu; exit 0 ;;
-    17) cf; exit 0 ;;
-    18) configure_fail2ban; exit 0 ;;
-    19) reverse_proxy_menu; main_menu; exit 0 ;;
-    20) wnmp_update; exit 0 ;;
+    2) if install_components_menu; then return 0; else main_menu; exit 0; fi ;;
+    3) status ;;
+    4) sshkey; main_menu; exit 0 ;;
+    5) webdav; exit 0 ;;
+    6) vhost; exit 0 ;;
+    7) vhost_del; exit 0 ;;
+    8) tool ;;
+    9) restart ;;
+    10) delete_components_menu; main_menu; exit 0 ;;
+    11) upgrade_components_menu; main_menu; exit 0 ;;
+    12) fixsshd; exit 0 ;;
+    13) ssl_certificate_menu; main_menu; exit 0 ;;
+    14) cf; exit 0 ;;
+    15) configure_fail2ban; exit 0 ;;
+    16) reverse_proxy_menu; main_menu; exit 0 ;;
+    17) wnmp_update; exit 0 ;;
     0) echo "[info] 已退出。"; exit 0 ;;
     *) echo "[setup] 无效选择: ${choice}"; usage; exit 1 ;;
   esac
@@ -2728,19 +2813,21 @@ reverse_proxy_menu() {
   2) 修改反向代理
   3) 删除反向代理
   4) 查看反向代理列表
+  5) 为反向代理申请/配置 SSL
   0) 返回
 PROXY_MENU
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "请选择 [0-4]: " choice </dev/tty || true
+      read -rp "请选择 [0-5]: " choice </dev/tty || true
     else
-      read -rp "请选择 [0-4]: " choice || true
+      read -rp "请选择 [0-5]: " choice || true
     fi
     case "$choice" in
       1) reverse_proxy ;;
       2) reverse_proxy_edit ;;
       3) reverse_proxy_del ;;
       4) reverse_proxy_list ;;
+      5) reverse_proxy_ssl ;;
       0) return 0 ;;
       *) echo "[proxy] 无效选择: $choice" ;;
     esac
@@ -2814,10 +2901,11 @@ reverse_proxy_del() {
 
 
 reverse_proxy() {
-  local public_domain="${1:-}" upstream_url="${2:-}" force="${3:-}"
+  local public_domain="${1:-}" upstream_url="${2:-}" force="${3:-}" ssl_mode="${4:-}"
   local vhost_dir="/usr/local/nginx/vhost"
   local scheme remainder authority target_path target_host port port_num
   local proxy_pass_url redirect_prefix redirect_regex_host redirect_regex redirect_root_regex cookie_domain_line conf backup tmp
+  local site_root ssl_dir cert_file key_file ssl_choice="" existing_ssl=0
 
   if [[ "$public_domain" == "del" && -z "$upstream_url" ]]; then
     reverse_proxy_del
@@ -2905,6 +2993,16 @@ reverse_proxy() {
   redirect_regex="~^https?://${redirect_regex_host}(?::[0-9]+)?(/.*)$"' $1'
 
   mkdir -p "$vhost_dir"
+  site_root="/home/wwwroot/${public_domain#www.}"
+  ssl_dir="/usr/local/nginx/ssl/${public_domain}"
+  cert_file="$ssl_dir/cert.pem"
+  key_file="$ssl_dir/key.pem"
+  mkdir -p "$site_root/.well-known/acme-challenge"
+  mkdir -p "$ssl_dir"
+  chown -R www:www "$site_root" 2>/dev/null || true
+  if [[ -s "$cert_file" && -s "$key_file" ]]; then
+    existing_ssl=1
+  fi
   conf="$vhost_dir/${public_domain}.proxy.conf"
   if [[ -f "$conf" && "$force" != "--force" ]]; then
     local answer=""
@@ -2923,6 +3021,13 @@ reverse_proxy() {
 server {
     listen 80;
     server_name ${public_domain};
+    root ${site_root};
+
+    # ACME HTTP-01 challenge must stay local and must not be proxied upstream.
+    location ^~ /.well-known/acme-challenge/ {
+        default_type text/plain;
+        try_files \$uri =404;
+    }
 
     # 单一 location 处理全部 URI，静态资源、接口和下载路径都会透传。
     client_max_body_size 0;
@@ -2990,6 +3095,157 @@ EOF
 
   echo "[proxy][成功] 反向代理已启用：${public_domain} -> ${proxy_pass_url}"
   echo "[proxy][信息] 配置文件：${conf}"
+
+  if [[ "$existing_ssl" -eq 1 ]]; then
+    ssl_choice="y"
+  elif [[ -n "${WNMP_PROXY_SSL:-}" ]]; then
+    case "${WNMP_PROXY_SSL,,}" in
+      1|y|yes|是) ssl_choice="y" ;;
+      *) ssl_choice="n" ;;
+    esac
+  elif [[ "$ssl_mode" == "required" ]]; then
+    ssl_choice="y"
+  elif [[ "$force" == "--force" ]]; then
+    ssl_choice="n"
+  elif [[ -t 0 || -r /dev/tty ]]; then
+    read -rp "是否现在为 ${public_domain} 申请 SSL 证书？[Y/n] " ssl_choice || true
+    ssl_choice="${ssl_choice:-Y}"
+  else
+    ssl_choice="n"
+  fi
+
+  if [[ "$ssl_choice" =~ ^[Yy]$ ]]; then
+    local acme_home="${ACME_HOME:-$HOME/.acme.sh}" acme_bin="" issue_ok=0 pre_ssl_conf=""
+    if command -v acme.sh >/dev/null 2>&1; then
+      acme_bin="$(command -v acme.sh)"
+    elif [[ -x "$acme_home/acme.sh" ]]; then
+      acme_bin="$acme_home/acme.sh"
+    fi
+
+    if [[ "$existing_ssl" -eq 1 ]]; then
+      issue_ok=1
+    elif [[ -z "$acme_bin" ]]; then
+      echo "[proxy][警告] 未检测到 acme.sh，暂不申请证书。"
+    else
+      local dns_confirm=""
+      read -rp "请确认 ${public_domain} 已解析到本机且 80 端口可访问（输入 yes 继续）：" dns_confirm || true
+      if [[ "${dns_confirm,,}" != "yes" ]]; then
+        echo "[proxy][信息] 已取消证书申请，反向代理仍保持 HTTP。"
+      else
+        echo "[proxy][申请] 使用 webroot 申请证书：$site_root"
+        if "$acme_bin" --issue --server letsencrypt -d "$public_domain" \
+            --webroot "$site_root" --keylength ec-256; then
+          issue_ok=1
+        else
+          echo "[proxy][错误] ${public_domain} 证书申请失败。"
+        fi
+      fi
+    fi
+
+    if [[ "$issue_ok" -eq 1 ]]; then
+      if [[ "$existing_ssl" -ne 1 ]]; then
+        if ! "$acme_bin" --install-cert -d "$public_domain" --ecc \
+            --key-file "$key_file" --fullchain-file "$cert_file" --reloadcmd "true"; then
+          issue_ok=0
+        fi
+      fi
+      if [[ "$issue_ok" -eq 1 && -s "$cert_file" && -s "$key_file" ]]; then
+        pre_ssl_conf="$(mktemp "${conf}.http.XXXXXX")"
+        cp -f "$conf" "$pre_ssl_conf"
+        reverse_proxy_render_https "$conf" "$public_domain" "$site_root" "$cert_file" "$key_file"
+        if ! "$nginx_bin" -t; then
+          echo "[proxy][错误] HTTPS 配置检查失败，恢复 HTTP 配置。"
+          cp -f "$pre_ssl_conf" "$conf"
+          issue_ok=0
+        else
+          local ssl_reload_ok=0
+          if command -v systemctl >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null; then
+            ssl_reload_ok=1
+          elif "$nginx_bin" -s reload >/dev/null 2>&1; then
+            ssl_reload_ok=1
+          fi
+          if [[ "$ssl_reload_ok" -ne 1 ]]; then
+            echo "[proxy][错误] HTTPS 配置重载失败，恢复 HTTP 配置。"
+            cp -f "$pre_ssl_conf" "$conf"
+            issue_ok=0
+          fi
+        fi
+        rm -f "$pre_ssl_conf"
+      else
+        echo "[proxy][错误] 证书文件未生成，仍保持 HTTP 配置。"
+        issue_ok=0
+      fi
+    fi
+
+    if [[ "$issue_ok" -eq 1 ]]; then
+      echo "[proxy][成功] HTTPS 已启用：${public_domain}"
+      echo "[proxy][信息] 证书：${cert_file}"
+    elif [[ "$ssl_mode" == "required" ]]; then
+      return 1
+    fi
+  else
+    echo "[proxy][信息] 已跳过 SSL 申请，可稍后执行：wnmp proxy ssl ${public_domain}"
+  fi
+}
+
+reverse_proxy_render_https() {
+  local conf="$1" domain="$2" site_root="$3" cert_file="$4" key_file="$5"
+  local https_tmp final_tmp
+
+  https_tmp="$(mktemp "${conf}.https.XXXXXX")"
+  final_tmp="$(mktemp "${conf}.ssl.XXXXXX")"
+
+  sed \
+    -e 's#^[[:space:]]*listen 80;#    listen 443 ssl;#' \
+    -e "/^[[:space:]]*server_name /a\\    listen [::]:443 ssl;\\n    ssl_certificate     ${cert_file};\\n    ssl_certificate_key ${key_file};\\n    ssl_session_cache   shared:SSL:20m;\\n    ssl_protocols TLSv1.2 TLSv1.3;\\n    ssl_session_timeout 10m;" \
+    "$conf" > "$https_tmp"
+
+  cat > "$final_tmp" <<EOF
+server {
+    listen 80;
+    server_name ${domain};
+    root ${site_root};
+
+    location ^~ /.well-known/acme-challenge/ {
+        default_type text/plain;
+        try_files \$uri =404;
+    }
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+EOF
+  cat "$https_tmp" >> "$final_tmp"
+  mv -f "$final_tmp" "$conf"
+  rm -f "$https_tmp"
+}
+
+reverse_proxy_ssl() {
+  local domain="${1:-}" domain_lc conf upstream
+  local vhost_dir="/usr/local/nginx/vhost"
+
+  if [[ -z "$domain" ]]; then
+    reverse_proxy_list
+    read -rp "请输入要申请/配置 SSL 的反向代理域名：" domain || true
+  fi
+  domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[proxy][错误] 对外域名格式无效。"
+    return 1
+  fi
+
+  conf="$vhost_dir/${domain_lc}.proxy.conf"
+  if [[ ! -f "$conf" ]]; then
+    echo "[proxy][错误] 未找到反向代理配置：$conf"
+    return 1
+  fi
+  upstream="$(awk '$1 == "proxy_pass" { gsub(/;$/, "", $2); print $2; exit }' "$conf")"
+  if [[ -z "$upstream" ]]; then
+    echo "[proxy][错误] 无法读取配置中的 proxy_pass：$conf"
+    return 1
+  fi
+
+  reverse_proxy "$domain_lc" "$upstream" "--force" "required"
 }
 
 
@@ -5383,7 +5639,24 @@ fi
 
 for arg in "$@"; do
    case "${arg}" in
-     install) break ;;
+     install)
+       shift
+       if [[ "$#" -gt 1 ]]; then
+         echo "[setup] install 最多只能指定一个组件：nginx、php 或 mariadb。"
+         usage
+         exit 1
+       fi
+       case "${1:-}" in
+         ""|all) WNMP_INSTALL_COMPONENT="all" ;;
+         nginx|php|mariadb) WNMP_INSTALL_COMPONENT="${1}" ;;
+         *)
+           echo "[setup] 未知安装组件: ${1}"
+           usage
+           exit 1
+           ;;
+       esac
+       break
+       ;;
      tool) tool; exit 0 ;;
      vhost) shift; if [[ "${1:-}" == "del" ]]; then vhost_del; else vhost; fi; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
@@ -5396,8 +5669,9 @@ for arg in "$@"; do
        case "${1:-}" in
          "") reverse_proxy_menu; exit 0 ;;
          del|delete) shift; if reverse_proxy_del "${1:-}"; then exit 0; else exit 1; fi ;;
-         edit|modify) shift; if reverse_proxy_edit "${1:-}"; then exit 0; else exit 1; fi ;;
-         list|ls) reverse_proxy_list; exit 0 ;;
+        edit|modify) shift; if reverse_proxy_edit "${1:-}"; then exit 0; else exit 1; fi ;;
+        ssl|https|certificate) shift; if reverse_proxy_ssl "${1:-}"; then exit 0; else exit 1; fi ;;
+        list|ls) reverse_proxy_list; exit 0 ;;
          add|create) shift; if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
          *) if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
        esac
@@ -5450,10 +5724,14 @@ fi
 
 
 
-install -m 0644 /dev/stdin /etc/profile.d/wnmp-path.sh <<'EOF'
+# 在精简系统中 /dev/stdin 可能无法作为 install 的普通源文件，且
+# /etc/profile.d 也可能不存在，因此先创建目录并直接写入配置文件。
+mkdir -p /etc/profile.d
+cat > /etc/profile.d/wnmp-path.sh <<'EOF'
 # WNMP: global PATH for login/interactive shells
 export PATH="/usr/local/php/bin:/usr/local/mariadb/bin:${PATH}"
 EOF
+chmod 0644 /etc/profile.d/wnmp-path.sh
 
 if ! grep -q 'wnmp-path.sh' /etc/bash.bashrc 2>/dev/null; then
   printf '\n# WNMP PATH for interactive shells\n[ -f /etc/profile.d/wnmp-path.sh ] && . /etc/profile.d/wnmp-path.sh\n' >> /etc/bash.bashrc
@@ -5506,37 +5784,50 @@ sysctl -p /etc/sysctl.d/99-swap.conf || true
 log "Current swap status:"; swapon --show || true; free -h || true
 
 
-echo "请选择PHP版本:"
 php_version='0'
-select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
-  case $phpselcect in
-    "不安装php") php_version='0'; break ;;
-    "php8.2") php_version='8.2.33'; break ;;
-    "php8.3") php_version='8.3.33'; break ;;
-    "php8.4") php_version='8.4.24'; break ;;
-    "php8.5") php_version='8.5.9'; break ;;
-    *) echo "无效选项 $REPLY";;
-  esac
-done
-
-echo "请选择mariadb版本:"
 mariadbselcect=''
 mariadb_version='0'
-select mariadbselcect in "不安装mariadb" "1GB内存10.6" "2GB以上内存10.11" "4GB以上内存11.8.5"; do
-  case $mariadbselcect in
-    "不安装mariadb") mariadb_version='0'; break ;;
-    "1GB内存10.6") mariadb_version='10.6.24'; break ;;
-    "2GB以上内存10.11") mariadb_version='10.11.15'; break ;;
-    "4GB以上内存11.8.5") mariadb_version='11.8.5'; break ;;
-    *) echo "无效选项 $REPLY";;
-  esac
-done
+
+# 安装范围由交互菜单或 `wnmp install <组件>` 设置。
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]]; then
+  echo "请选择PHP版本:"
+  select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
+    case $phpselcect in
+      "不安装php") php_version='0'; break ;;
+      "php8.2") php_version='8.2.33'; break ;;
+      "php8.3") php_version='8.3.33'; break ;;
+      "php8.4") php_version='8.4.24'; break ;;
+      "php8.5") php_version='8.5.9'; break ;;
+      *) echo "无效选项 $REPLY";;
+    esac
+  done
+fi
+
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "mariadb" ]]; then
+  echo "请选择mariadb版本:"
+  select mariadbselcect in "不安装mariadb" "1GB内存10.6" "2GB以上内存10.11" "4GB以上内存11.8.5"; do
+    case $mariadbselcect in
+      "不安装mariadb") mariadb_version='0'; break ;;
+      "1GB内存10.6") mariadb_version='10.6.24'; break ;;
+      "2GB以上内存10.11") mariadb_version='10.11.15'; break ;;
+      "4GB以上内存11.8.5") mariadb_version='11.8.5'; break ;;
+      *) echo "无效选项 $REPLY";;
+    esac
+  done
+fi
+
 if [ "$mariadb_version" != "0" ]; then
   wnmp_prompt_mysql_password || exit 1
 fi
-read -rp "是否安装NGINX？(y/n): " choosenginx
+choosenginx='n'
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
+  read -rp "是否安装NGINX？(y/n): " choosenginx
+elif [[ "$WNMP_INSTALL_COMPONENT" == "nginx" ]]; then
+  choosenginx='y'
+fi
 
 
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$choosenginx" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
 if [[ "$IS_LAN" -eq 1 ]]; then
     red "[env] 当前为内网环境，将跳过证书申请。"
     read -rp "是否强制申请证书？[y/N] " ans
@@ -5550,6 +5841,7 @@ if [[ "$IS_LAN" -eq 1 ]]; then
   else
     green "[env] 检测到公网环境，可正常申请证书。"
   fi
+fi
 
 
 

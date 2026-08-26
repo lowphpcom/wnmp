@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.53
+# Version: 1.54
+# v1.54 2026-08-27: Fixed the PATH helper write failure that could stop installation on minimal systems. Added standalone Nginx, PHP, and MariaDB installation, consolidated component delete/upgrade menus, and enabled webroot HTTP-01 SSL issuance for reverse proxies.
 # v1.52 2026-08-06: Added SSL certificate management and Nginx reverse proxy management menus, including certificate scanning/renewal controls, single-domain force reissue, proxy edit/delete/list operations, static-resource passthrough, and public-domain redirect/cookie rewriting.
 # Language channel: en
 WNMP_LANG="en"
@@ -27,6 +28,7 @@ IS_LAN=1
 PUBLIC_IP=""
 IS_CN=0
 PROXY_MODE=${PROXY_MODE:-}
+WNMP_INSTALL_COMPONENT="all"
 rm -rf /tmp/wnmp_proxy_choice
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 TARGET_PATH="/usr/local/bin/wnmp"
@@ -67,7 +69,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.53"
+  green  " [init] Version: 1.54"
 green  "============================================================"
 echo
 sleep 1
@@ -77,6 +79,7 @@ usage() {
 Usage:
   wnmp               # Show interactive menu
   wnmp install       # Normal installation
+  wnmp install [nginx|php|mariadb] # Install one component only
   wnmp status        # Show service status
   wnmp sshkey        # Manage SSH key login or restore password login
   wnmp webdav [domain]        # Add a WebDAV account
@@ -85,6 +88,7 @@ Usage:
   wnmp proxy         # Manage Nginx reverse proxy entries
   wnmp proxy edit    # Modify an existing reverse proxy
   wnmp proxy del     # Delete a reverse proxy configuration
+  wnmp proxy ssl [domain] # Issue/configure SSL for a reverse proxy
   wnmp tool          # Kernel / network tuning only
   wnmp restart       # Restart services
   wnmp update        # Update WNMP script itself
@@ -242,6 +246,93 @@ ssl_certificate_command() {
   esac
 }
 
+delete_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " Delete Components"
+    green "============================================================"
+    cat <<'DELETE_MENU'
+  1) Clean everything                 (wnmp remove)
+  2) Clean Nginx only                 (wnmp renginx)
+  3) Clean PHP only                   (wnmp rephp)
+  4) Clean MariaDB only               (wnmp remariadb)
+  0) Back
+DELETE_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "Please select [0-4]: " choice </dev/tty || true
+    else
+      read -rp "Please select [0-4]: " choice || true
+    fi
+    case "${choice}" in
+      1) remove ;;
+      2) renginx ;;
+      3) rephp ;;
+      4) remariadb ;;
+      0) return 0 ;;
+      *) echo "[setup] Invalid selection: ${choice}" ;;
+    esac
+  done
+}
+
+upgrade_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " Upgrade Components"
+    green "============================================================"
+    cat <<'UPGRADE_MENU'
+  1) Upgrade or downgrade Nginx       (wnmp update nginx)
+  2) Upgrade or downgrade PHP         (wnmp update php)
+  0) Back
+UPGRADE_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "Please select [0-2]: " choice </dev/tty || true
+    else
+      read -rp "Please select [0-2]: " choice || true
+    fi
+    case "${choice}" in
+      1) wnmp_update nginx; exit 0 ;;
+      2) wnmp_update php; exit 0 ;;
+      0) return 0 ;;
+      *) echo "[setup] Invalid selection: ${choice}" ;;
+    esac
+  done
+}
+
+install_components_menu() {
+  while true; do
+    echo
+    green "============================================================"
+    green " Install Components Separately"
+    green "============================================================"
+    cat <<'INSTALL_MENU'
+  1) Install Nginx only               (wnmp install nginx)
+  2) Install PHP only                 (wnmp install php)
+  3) Install MariaDB only             (wnmp install mariadb)
+  0) Back
+INSTALL_MENU
+    echo
+    local choice=""
+    if [[ -r /dev/tty ]]; then
+      read -rp "Please select [0-3]: " choice </dev/tty || true
+    else
+      read -rp "Please select [0-3]: " choice || true
+    fi
+    case "${choice}" in
+      1) WNMP_INSTALL_COMPONENT="nginx"; return 0 ;;
+      2) WNMP_INSTALL_COMPONENT="php"; return 0 ;;
+      3) WNMP_INSTALL_COMPONENT="mariadb"; return 0 ;;
+      0) return 1 ;;
+      *) echo "[setup] Invalid selection: ${choice}" ;;
+    esac
+  done
+}
+
 main_menu() {
   echo
   green "============================================================"
@@ -249,56 +340,50 @@ main_menu() {
   green "============================================================"
   cat <<'MENU'
   1) Normal installation                 (wnmp install)
-  2) Show service status                 (wnmp status)
-  3) Manage SSH login                    (wnmp sshkey)
-  4) Add a WebDAV account                (wnmp webdav)
-  5) Create a virtual host (with SSL)    (wnmp vhost)
-  6) Delete a virtual host               (wnmp vhost del)
-  7) Kernel / network tuning only        (wnmp tool)
-  8) Restart services                    (wnmp restart)
-  9) Update Nginx                        (wnmp update nginx)
- 10) Update PHP                          (wnmp update php)
- 11) Uninstall everything                (wnmp remove)
- 12) Uninstall Nginx                     (wnmp renginx)
- 13) Uninstall PHP                       (wnmp rephp)
- 14) Uninstall MariaDB                   (wnmp remariadb)
- 15) Self-check and attempt to fix sshd  (wnmp fixsshd)
- 16) SSL certificate management          (wnmp ssl)
- 17) Install Cloudflare real IP task     (wnmp cf)
- 18) Install and configure fail2ban      (wnmp fail2ban)
- 19) Nginx reverse proxy management      (wnmp proxy)
- 20) Update WNMP script                  (wnmp update)
+  2) Install components separately       (Nginx / PHP / MariaDB)
+  3) Show service status                 (wnmp status)
+  4) Manage SSH login                    (wnmp sshkey)
+  5) Add a WebDAV account                (wnmp webdav)
+  6) Create a virtual host (with SSL)    (wnmp vhost)
+  7) Delete a virtual host               (wnmp vhost del)
+  8) Kernel / network tuning only        (wnmp tool)
+  9) Restart services                    (wnmp restart)
+ 10) Delete components                   (wnmp remove / renginx / rephp / remariadb)
+ 11) Upgrade components                 (wnmp update nginx / wnmp update php)
+ 12) Self-check and attempt to fix sshd  (wnmp fixsshd)
+ 13) SSL certificate management          (wnmp ssl)
+ 14) Install Cloudflare real IP task     (wnmp cf)
+ 15) Install and configure fail2ban      (wnmp fail2ban)
+ 16) Nginx reverse proxy management      (wnmp proxy)
+ 17) Update WNMP script                  (wnmp update / wnmp update force)
   0) Exit
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-    read -rp "Please select [0-20]: " choice </dev/tty || true
+      read -rp "Please select [0-17]: " choice </dev/tty || true
   else
-    read -rp "Please select [0-20]: " choice || true
+    read -rp "Please select [0-17]: " choice || true
   fi
 
   case "${choice}" in
     1) return 0 ;;
-    2) status ;;
-    3) sshkey; main_menu; exit 0 ;;
-    4) webdav; exit 0 ;;
-    5) vhost; exit 0 ;;
-    6) vhost_del; exit 0 ;;
-    7) tool ;;
-    8) restart ;;
-    9) wnmp_update nginx; exit 0 ;;
-    10) wnmp_update php; exit 0 ;;
-    11) remove ;;
-    12) renginx ;;
-    13) rephp ;;
-    14) remariadb ;;
-    15) fixsshd; exit 0 ;;
-    16) ssl_certificate_menu; main_menu; exit 0 ;;
-    17) cf; exit 0 ;;
-    18) configure_fail2ban; exit 0 ;;
-    19) reverse_proxy_menu; main_menu; exit 0 ;;
-    20) wnmp_update; exit 0 ;;
+    2) if install_components_menu; then return 0; else main_menu; exit 0; fi ;;
+    3) status ;;
+    4) sshkey; main_menu; exit 0 ;;
+    5) webdav; exit 0 ;;
+    6) vhost; exit 0 ;;
+    7) vhost_del; exit 0 ;;
+    8) tool ;;
+    9) restart ;;
+    10) delete_components_menu; main_menu; exit 0 ;;
+    11) upgrade_components_menu; main_menu; exit 0 ;;
+    12) fixsshd; exit 0 ;;
+    13) ssl_certificate_menu; main_menu; exit 0 ;;
+    14) cf; exit 0 ;;
+    15) configure_fail2ban; exit 0 ;;
+    16) reverse_proxy_menu; main_menu; exit 0 ;;
+    17) wnmp_update; exit 0 ;;
     0) echo "[info] Bye."; exit 0 ;;
     *) echo "[setup] Invalid selection: ${choice}"; usage; exit 1 ;;
   esac
@@ -2727,19 +2812,21 @@ reverse_proxy_menu() {
   2) Modify reverse proxy
   3) Delete reverse proxy
   4) List reverse proxies
+  5) Issue/configure SSL for reverse proxy
   0) Back
 PROXY_MENU
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-4]: " choice </dev/tty || true
+      read -rp "Please select [0-5]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-4]: " choice || true
+      read -rp "Please select [0-5]: " choice || true
     fi
     case "$choice" in
       1) reverse_proxy ;;
       2) reverse_proxy_edit ;;
       3) reverse_proxy_del ;;
       4) reverse_proxy_list ;;
+      5) reverse_proxy_ssl ;;
       0) return 0 ;;
       *) echo "[proxy] Invalid selection: $choice" ;;
     esac
@@ -2813,10 +2900,11 @@ reverse_proxy_del() {
 
 
 reverse_proxy() {
-  local public_domain="${1:-}" upstream_url="${2:-}" force="${3:-}"
+  local public_domain="${1:-}" upstream_url="${2:-}" force="${3:-}" ssl_mode="${4:-}"
   local vhost_dir="/usr/local/nginx/vhost"
   local scheme remainder authority target_path target_host port port_num
   local proxy_pass_url redirect_prefix redirect_regex_host redirect_regex redirect_root_regex cookie_domain_line conf backup tmp
+  local site_root ssl_dir cert_file key_file ssl_choice="" existing_ssl=0
 
   if [[ "$public_domain" == "del" && -z "$upstream_url" ]]; then
     reverse_proxy_del
@@ -2904,6 +2992,16 @@ reverse_proxy() {
   redirect_regex="~^https?://${redirect_regex_host}(?::[0-9]+)?(/.*)$"' $1'
 
   mkdir -p "$vhost_dir"
+  site_root="/home/wwwroot/${public_domain#www.}"
+  ssl_dir="/usr/local/nginx/ssl/${public_domain}"
+  cert_file="$ssl_dir/cert.pem"
+  key_file="$ssl_dir/key.pem"
+  mkdir -p "$site_root/.well-known/acme-challenge"
+  mkdir -p "$ssl_dir"
+  chown -R www:www "$site_root" 2>/dev/null || true
+  if [[ -s "$cert_file" && -s "$key_file" ]]; then
+    existing_ssl=1
+  fi
   conf="$vhost_dir/${public_domain}.proxy.conf"
   if [[ -f "$conf" && "$force" != "--force" ]]; then
     local answer=""
@@ -2922,6 +3020,13 @@ reverse_proxy() {
 server {
     listen 80;
     server_name ${public_domain};
+    root ${site_root};
+
+    # ACME HTTP-01 challenge must stay local and must not be proxied upstream.
+    location ^~ /.well-known/acme-challenge/ {
+        default_type text/plain;
+        try_files \$uri =404;
+    }
 
     # One location handles every URI, including arbitrary static resources.
     client_max_body_size 0;
@@ -2989,6 +3094,157 @@ EOF
 
   echo "[proxy][OK] Reverse proxy enabled: ${public_domain} -> ${proxy_pass_url}"
   echo "[proxy][INFO] Configuration: ${conf}"
+
+  if [[ "$existing_ssl" -eq 1 ]]; then
+    ssl_choice="y"
+  elif [[ -n "${WNMP_PROXY_SSL:-}" ]]; then
+    case "${WNMP_PROXY_SSL,,}" in
+      1|y|yes) ssl_choice="y" ;;
+      *) ssl_choice="n" ;;
+    esac
+  elif [[ "$ssl_mode" == "required" ]]; then
+    ssl_choice="y"
+  elif [[ "$force" == "--force" ]]; then
+    ssl_choice="n"
+  elif [[ -t 0 || -r /dev/tty ]]; then
+    read -rp "Issue an SSL certificate for ${public_domain} now? [Y/n] " ssl_choice || true
+    ssl_choice="${ssl_choice:-Y}"
+  else
+    ssl_choice="n"
+  fi
+
+  if [[ "$ssl_choice" =~ ^[Yy]$ ]]; then
+    local acme_home="${ACME_HOME:-$HOME/.acme.sh}" acme_bin="" issue_ok=0 pre_ssl_conf=""
+    if command -v acme.sh >/dev/null 2>&1; then
+      acme_bin="$(command -v acme.sh)"
+    elif [[ -x "$acme_home/acme.sh" ]]; then
+      acme_bin="$acme_home/acme.sh"
+    fi
+
+    if [[ "$existing_ssl" -eq 1 ]]; then
+      issue_ok=1
+    elif [[ -z "$acme_bin" ]]; then
+      echo "[proxy][WARN] acme.sh was not found; certificate issuance skipped."
+    else
+      local dns_confirm=""
+      read -rp "Confirm ${public_domain} resolves to this server and port 80 is reachable (enter yes): " dns_confirm || true
+      if [[ "${dns_confirm,,}" != "yes" ]]; then
+        echo "[proxy][INFO] Certificate issuance canceled; HTTP proxy remains enabled."
+      else
+        echo "[proxy][ISSUE] Issuing certificate with webroot: $site_root"
+        if "$acme_bin" --issue --server letsencrypt -d "$public_domain" \
+            --webroot "$site_root" --keylength ec-256; then
+          issue_ok=1
+        else
+          echo "[proxy][ERROR] Certificate issuance failed for ${public_domain}."
+        fi
+      fi
+    fi
+
+    if [[ "$issue_ok" -eq 1 ]]; then
+      if [[ "$existing_ssl" -ne 1 ]]; then
+        if ! "$acme_bin" --install-cert -d "$public_domain" --ecc \
+            --key-file "$key_file" --fullchain-file "$cert_file" --reloadcmd "true"; then
+          issue_ok=0
+        fi
+      fi
+      if [[ "$issue_ok" -eq 1 && -s "$cert_file" && -s "$key_file" ]]; then
+        pre_ssl_conf="$(mktemp "${conf}.http.XXXXXX")"
+        cp -f "$conf" "$pre_ssl_conf"
+        reverse_proxy_render_https "$conf" "$public_domain" "$site_root" "$cert_file" "$key_file"
+        if ! "$nginx_bin" -t; then
+          echo "[proxy][ERROR] HTTPS configuration test failed; restoring HTTP configuration."
+          cp -f "$pre_ssl_conf" "$conf"
+          issue_ok=0
+        else
+          local ssl_reload_ok=0
+          if command -v systemctl >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null; then
+            ssl_reload_ok=1
+          elif "$nginx_bin" -s reload >/dev/null 2>&1; then
+            ssl_reload_ok=1
+          fi
+          if [[ "$ssl_reload_ok" -ne 1 ]]; then
+            echo "[proxy][ERROR] HTTPS configuration reload failed; restoring HTTP configuration."
+            cp -f "$pre_ssl_conf" "$conf"
+            issue_ok=0
+          fi
+        fi
+        rm -f "$pre_ssl_conf"
+      else
+        echo "[proxy][ERROR] Certificate files were not generated; HTTP configuration remains active."
+        issue_ok=0
+      fi
+    fi
+
+    if [[ "$issue_ok" -eq 1 ]]; then
+      echo "[proxy][OK] HTTPS enabled: ${public_domain}"
+      echo "[proxy][INFO] Certificate: ${cert_file}"
+    elif [[ "$ssl_mode" == "required" ]]; then
+      return 1
+    fi
+  else
+    echo "[proxy][INFO] SSL issuance skipped. Later run: wnmp proxy ssl ${public_domain}"
+  fi
+}
+
+reverse_proxy_render_https() {
+  local conf="$1" domain="$2" site_root="$3" cert_file="$4" key_file="$5"
+  local https_tmp final_tmp
+
+  https_tmp="$(mktemp "${conf}.https.XXXXXX")"
+  final_tmp="$(mktemp "${conf}.ssl.XXXXXX")"
+
+  sed \
+    -e 's#^[[:space:]]*listen 80;#    listen 443 ssl;#' \
+    -e "/^[[:space:]]*server_name /a\\    listen [::]:443 ssl;\\n    ssl_certificate     ${cert_file};\\n    ssl_certificate_key ${key_file};\\n    ssl_session_cache   shared:SSL:20m;\\n    ssl_protocols TLSv1.2 TLSv1.3;\\n    ssl_session_timeout 10m;" \
+    "$conf" > "$https_tmp"
+
+  cat > "$final_tmp" <<EOF
+server {
+    listen 80;
+    server_name ${domain};
+    root ${site_root};
+
+    location ^~ /.well-known/acme-challenge/ {
+        default_type text/plain;
+        try_files \$uri =404;
+    }
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+EOF
+  cat "$https_tmp" >> "$final_tmp"
+  mv -f "$final_tmp" "$conf"
+  rm -f "$https_tmp"
+}
+
+reverse_proxy_ssl() {
+  local domain="${1:-}" domain_lc conf upstream
+  local vhost_dir="/usr/local/nginx/vhost"
+
+  if [[ -z "$domain" ]]; then
+    reverse_proxy_list
+    read -rp "Enter the reverse proxy domain for SSL: " domain || true
+  fi
+  domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[proxy][ERROR] Invalid public domain name."
+    return 1
+  fi
+
+  conf="$vhost_dir/${domain_lc}.proxy.conf"
+  if [[ ! -f "$conf" ]]; then
+    echo "[proxy][ERROR] Reverse proxy configuration not found: $conf"
+    return 1
+  fi
+  upstream="$(awk '$1 == "proxy_pass" { gsub(/;$/, "", $2); print $2; exit }' "$conf")"
+  if [[ -z "$upstream" ]]; then
+    echo "[proxy][ERROR] Cannot read proxy_pass from: $conf"
+    return 1
+  fi
+
+  reverse_proxy "$domain_lc" "$upstream" "--force" "required"
 }
 
 
@@ -5382,7 +5638,24 @@ fi
 
 for arg in "$@"; do
    case "${arg}" in
-     install) break ;;
+     install)
+       shift
+       if [[ "$#" -gt 1 ]]; then
+         echo "[setup] install accepts at most one component: nginx, php, or mariadb."
+         usage
+         exit 1
+       fi
+       case "${1:-}" in
+         ""|all) WNMP_INSTALL_COMPONENT="all" ;;
+         nginx|php|mariadb) WNMP_INSTALL_COMPONENT="${1}" ;;
+         *)
+           echo "[setup] Unknown install component: ${1}"
+           usage
+           exit 1
+           ;;
+       esac
+       break
+       ;;
      tool) tool; exit 0 ;;
      vhost) shift; if [[ "${1:-}" == "del" ]]; then vhost_del; else vhost; fi; exit 0 ;;
      -h|--help|help) usage; exit 0 ;;
@@ -5395,8 +5668,9 @@ for arg in "$@"; do
        case "${1:-}" in
          "") reverse_proxy_menu; exit 0 ;;
          del|delete) shift; if reverse_proxy_del "${1:-}"; then exit 0; else exit 1; fi ;;
-         edit|modify) shift; if reverse_proxy_edit "${1:-}"; then exit 0; else exit 1; fi ;;
-         list|ls) reverse_proxy_list; exit 0 ;;
+        edit|modify) shift; if reverse_proxy_edit "${1:-}"; then exit 0; else exit 1; fi ;;
+        ssl|https|certificate) shift; if reverse_proxy_ssl "${1:-}"; then exit 0; else exit 1; fi ;;
+        list|ls) reverse_proxy_list; exit 0 ;;
          add|create) shift; if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
          *) if reverse_proxy "$@"; then exit 0; else exit 1; fi ;;
        esac
@@ -5449,10 +5723,14 @@ fi
 
 
 
-install -m 0644 /dev/stdin /etc/profile.d/wnmp-path.sh <<'EOF'
+# Keep the PATH helper portable across minimal images where /dev/stdin is not
+# a regular file source for `install`, or /etc/profile.d is absent.
+mkdir -p /etc/profile.d
+cat > /etc/profile.d/wnmp-path.sh <<'EOF'
 # WNMP: global PATH for login/interactive shells
 export PATH="/usr/local/php/bin:/usr/local/mariadb/bin:${PATH}"
 EOF
+chmod 0644 /etc/profile.d/wnmp-path.sh
 
 if ! grep -q 'wnmp-path.sh' /etc/bash.bashrc 2>/dev/null; then
   printf '\n# WNMP PATH for interactive shells\n[ -f /etc/profile.d/wnmp-path.sh ] && . /etc/profile.d/wnmp-path.sh\n' >> /etc/bash.bashrc
@@ -5505,37 +5783,50 @@ sysctl -p /etc/sysctl.d/99-swap.conf || true
 log "Current swap status:"; swapon --show || true; free -h || true
 
 
-echo "Please select a PHP version.:"
 php_version='0'
-select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
-  case $phpselcect in
-    "Do not install PHP") php_version='0'; break ;;
-    "php8.2") php_version='8.2.33'; break ;;
-    "php8.3") php_version='8.3.33'; break ;;
-    "php8.4") php_version='8.4.24'; break ;;
-    "php8.5") php_version='8.5.9'; break ;;
-    *) echo "Invalid option $REPLY";;
-  esac
-done
-
-echo "Please select the MariaDB version.:"
 mariadbselcect=''
 mariadb_version='0'
-select mariadbselcect in "Do not install MariaDB" "1GB RAM 10.6" "2GB RAM 10.11" "4GB RAM 11.8.5"; do
-  case $mariadbselcect in
-    "Do not install MariaDB") mariadb_version='0'; break ;;
-    "1GB RAM 10.6") mariadb_version='10.6.24'; break ;;
-    "2GB RAM 10.11") mariadb_version='10.11.15'; break ;;
-    "4GB RAM 11.8.5") mariadb_version='11.8.5'; break ;;
-    *) echo "Invalid option $REPLY";;
-  esac
-done
+
+# Component mode is selected by the interactive submenu or `wnmp install <component>`.
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]]; then
+  echo "Please select a PHP version.:"
+  select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
+    case $phpselcect in
+      "Do not install PHP") php_version='0'; break ;;
+      "php8.2") php_version='8.2.33'; break ;;
+      "php8.3") php_version='8.3.33'; break ;;
+      "php8.4") php_version='8.4.24'; break ;;
+      "php8.5") php_version='8.5.9'; break ;;
+      *) echo "Invalid option $REPLY";;
+    esac
+  done
+fi
+
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "mariadb" ]]; then
+  echo "Please select the MariaDB version.:"
+  select mariadbselcect in "Do not install MariaDB" "1GB RAM 10.6" "2GB RAM 10.11" "4GB RAM 11.8.5"; do
+    case $mariadbselcect in
+      "Do not install MariaDB") mariadb_version='0'; break ;;
+      "1GB RAM 10.6") mariadb_version='10.6.24'; break ;;
+      "2GB RAM 10.11") mariadb_version='10.11.15'; break ;;
+      "4GB RAM 11.8.5") mariadb_version='11.8.5'; break ;;
+      *) echo "Invalid option $REPLY";;
+    esac
+  done
+fi
+
 if [ "$mariadb_version" != "0" ]; then
   wnmp_prompt_mysql_password || exit 1
 fi
-read -rp "Is NGINX installed?(y/n): " choosenginx
+choosenginx='n'
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
+  read -rp "Is NGINX installed?(y/n): " choosenginx
+elif [[ "$WNMP_INSTALL_COMPONENT" == "nginx" ]]; then
+  choosenginx='y'
+fi
 
 
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$choosenginx" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
 if [[ "$IS_LAN" -eq 1 ]]; then
     red "[env] This is an internal network environment; certificate requests will be skipped."
     read -rp "Is it mandatory to apply for the certificate?[y/N] " ans
@@ -5549,6 +5840,7 @@ if [[ "$IS_LAN" -eq 1 ]]; then
   else
     green "[env] Public network environment detected; certificate application can proceed normally."
   fi
+fi
 
 
 

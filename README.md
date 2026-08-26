@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.54 2026-08-27 Fixed the PATH helper write failure that could stop installation on minimal systems. Added standalone Nginx, PHP, and MariaDB installation, consolidated component delete/upgrade menus, and enabled webroot HTTP-01 SSL issuance for reverse proxies. Reverse-proxy certificates are now visible to SSL management and renewal.
+
 v1.53 2026-08-24 The default Nginx version has been upgraded to nginx-1.31.4.
 
 v1.52 2026-08-06 Added SSL certificate management and Nginx reverse proxy management menus. SSL tools now scan deployed certificates under /usr/local/nginx/ssl, support renewal checks and single-domain force reissue, while reverse proxies support create, edit, delete, and list operations. Proxy configurations pass through arbitrary static resources and rewrite upstream redirects and cookie domains to keep visitors on the public domain.
