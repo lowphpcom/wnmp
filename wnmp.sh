@@ -7380,6 +7380,7 @@ if [ "$mariadb_version" != "0" ]; then
 
   export LDFLAGS="-Wl,--as-needed -Wl,--no-keep-memory"
 
+  # ColumnStore is not used by WNMP and its legacy CMake files fail with CMake 4.
   cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb \
@@ -7397,6 +7398,7 @@ if [ "$mariadb_version" != "0" ]; then
     -DPLUGIN_CONNECT=NO \
     -DPLUGIN_ROCKSDB=NO \
     -DPLUGIN_SPIDER=NO \
+    -DPLUGIN_COLUMNSTORE=NO \
     -DWITH_GROONGA=OFF \
     -DWITHOUT_GROONGA=ON \
     -DWITH_MROONGA=OFF \
