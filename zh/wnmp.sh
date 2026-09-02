@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.54
+# Version: 1.55
+# v1.55 2026-09-02：更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
 # v1.54 2026-08-27：修复精简系统写入 PATH 配置时可能导致安装退出的问题；新增 Nginx、PHP、MariaDB 独立安装，收纳组件删除/升级菜单，并支持反向代理通过 Webroot HTTP-01 申请 SSL 证书。
 # v1.52 2026-08-06：新增 SSL 证书管理和 Nginx 反向代理管理菜单，支持证书扫描/续签、单域名强制重新签发、代理修改/删除/列表、静态资源透传，以及对外域名跳转和 Cookie 域重写。
 # Language channel: zh
@@ -69,7 +70,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.54"
+  green  " [init] Version: 1.55"
 green  "============================================================"
 echo
 sleep 1
@@ -5796,8 +5797,8 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
       "不安装php") php_version='0'; break ;;
       "php8.2") php_version='8.2.33'; break ;;
       "php8.3") php_version='8.3.33'; break ;;
-      "php8.4") php_version='8.4.24'; break ;;
-      "php8.5") php_version='8.5.9'; break ;;
+      "php8.4") php_version='8.4.25'; break ;;
+      "php8.5") php_version='8.5.10'; break ;;
       *) echo "无效选项 $REPLY";;
     esac
   done
