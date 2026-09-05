@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.56 2026-09-05: Updated nginx-1.31.5 mainline version has been released, featuring control API, predicate locations, and the ngx_http_json_module module.
+
 v1.55 2026-09-02 Updated the bundled PHP versions to PHP 8.5.10 and PHP 8.4.25.
 
 v1.54 2026-08-27 Fixed the PATH helper write failure that could stop installation on minimal systems. Added standalone Nginx, PHP, and MariaDB installation, consolidated component delete/upgrade menus, and enabled webroot HTTP-01 SSL issuance for reverse proxies. Reverse-proxy certificates are now visible to SSL management and renewal.

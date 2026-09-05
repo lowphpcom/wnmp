@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.55
+# Version: 1.56
+# v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
 # v1.55 2026-09-02：更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
 # v1.54 2026-08-27：修复精简系统写入 PATH 配置时可能导致安装退出的问题；新增 Nginx、PHP、MariaDB 独立安装，收纳组件删除/升级菜单，并支持反向代理通过 Webroot HTTP-01 申请 SSL 证书。
 # v1.52 2026-08-06：新增 SSL 证书管理和 Nginx 反向代理管理菜单，支持证书扫描/续签、单域名强制重新签发、代理修改/删除/列表、静态资源透传，以及对外域名跳转和 Cookie 域重写。
@@ -70,7 +71,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.55"
+  green  " [init] Version: 1.56"
 green  "============================================================"
 echo
 sleep 1
@@ -4512,7 +4513,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.4")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.5")" || return 1
   if ! wnmp_mysql_pass_configured; then
     echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
     wnmp_prompt_mysql_password || return 1
@@ -6240,7 +6241,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.3.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.5.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx

@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.55
+# Version: 1.56
+# v1.56 2026-09-05: Updated nginx-1.31.5 mainline version has been released, featuring control API, predicate locations, and the ngx_http_json_module module.
 # v1.55 2026-09-02: Updated the bundled PHP versions to PHP 8.5.10 and PHP 8.4.25.
 # v1.54 2026-08-27: Fixed the PATH helper write failure that could stop installation on minimal systems. Added standalone Nginx, PHP, and MariaDB installation, consolidated component delete/upgrade menus, and enabled webroot HTTP-01 SSL issuance for reverse proxies.
 # v1.52 2026-08-06: Added SSL certificate management and Nginx reverse proxy management menus, including certificate scanning/renewal controls, single-domain force reissue, proxy edit/delete/list operations, static-resource passthrough, and public-domain redirect/cookie rewriting.
@@ -70,7 +71,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.55"
+  green  " [init] Version: 1.56"
 green  "============================================================"
 echo
 sleep 1
@@ -4511,7 +4512,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.4")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.5")" || return 1
   if ! wnmp_mysql_pass_configured; then
     echo "[nginx] No valid phpMyAdmin access password detected. Please set one before continuing."
     wnmp_prompt_mysql_password || return 1
@@ -6239,7 +6240,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.3.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.5.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
