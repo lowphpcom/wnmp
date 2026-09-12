@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.57 2026-09-13: Added interactive ACME DNS API provider configuration for Cloudflare, DNSPod, ClouDNS, GoDaddy, AWS, Aliyun, Linode, FreeDNS, HE.net, NameSilo, DigitalOcean, and Name.com.
+
 v1.56 2026-09-05: Updated nginx-1.31.5 mainline version has been released, featuring control API, predicate locations, and the ngx_http_json_module module.
 
 v1.55 2026-09-02 Updated the bundled PHP versions to PHP 8.5.10 and PHP 8.4.25.
@@ -137,6 +139,8 @@ It’s designed for **small to medium websites, edge nodes, and private deployme
 - **Automatic SSL Certificates**  
   Integrates `acme.sh`.  
   Uses **Cloudflare DNS-01** first, falls back to **webroot**, then automatically reloads Nginx.
+
+  Run `wnmp dns` to configure DNS API credentials from an interactive menu. Providers aligned with `1.png` include Cloudflare, DNSPod, ClouDNS, GoDaddy, AWS Route53, Aliyun, Linode, FreeDNS, HE.net, NameSilo, DigitalOcean, and Name.com. Credentials are stored with mode 600 in `/root/.acme.sh/account.conf`; vhost issuance selects the configured dnsapi and falls back to webroot when unavailable.
 
 - **Multi-Site & WebDAV**  
   One-click vhost creation, built-in phpMyAdmin protection, and WebDAV account management.  

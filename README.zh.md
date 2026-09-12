@@ -34,6 +34,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持 Cloudflare、DNSPod、ClouDNS、GoDaddy、AWS、阿里云、Linode、FreeDNS、HE.net、NameSilo、DigitalOcean 和 Name.com。
+
 v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
 
 v1.55 2026-09-02 更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
@@ -132,6 +134,8 @@ v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和
 
 - **证书自动化**  
   集成 `acme.sh`，优先使用 Cloudflare DNS-01，失败时自动回落 webroot，签发后自动 reload Nginx。
+
+  可执行 `wnmp dns` 进入 DNS API 配置菜单，按 1.png 所示一次性支持 Cloudflare、DNSPod、ClouDNS、GoDaddy、AWS Route53、阿里云、Linode、FreeDNS、HE.net、NameSilo、DigitalOcean 与 Name.com。凭据会以 600 权限保存到 `/root/.acme.sh/account.conf`，创建虚拟主机时自动选择对应 dnsapi；未配置时回落 Webroot。
 
 - **多站点与 WebDAV 支持**  
   一键创建虚拟主机，内置 phpMyAdmin 保护与 WebDAV 账号管理，每个域名独立密码文件 `/home/passwd/`。

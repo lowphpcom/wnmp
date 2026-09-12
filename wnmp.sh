@@ -3,7 +3,10 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.56
+# Version: 1.57
+# v1.57 2026-09-13: Added interactive ACME DNS API provider configuration for
+# Cloudflare, DNSPod, ClouDNS, GoDaddy, AWS, Aliyun, Linode, FreeDNS, HE.net,
+# NameSilo, DigitalOcean, and Name.com.
 # v1.56 2026-09-05: Updated nginx-1.31.5 mainline version has been released, featuring control API, predicate locations, and the ngx_http_json_module module.
 # v1.55 2026-09-02: Updated the bundled PHP versions to PHP 8.5.10 and PHP 8.4.25.
 # v1.54 2026-08-27: Fixed the PATH helper write failure that could stop installation on minimal systems. Added standalone Nginx, PHP, and MariaDB installation, consolidated component delete/upgrade menus, and enabled webroot HTTP-01 SSL issuance for reverse proxies.
@@ -71,7 +74,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.56"
+  green  " [init] Version: 1.57"
 green  "============================================================"
 echo
 sleep 1
@@ -102,6 +105,7 @@ Usage:
   wnmp remariadb     # Uninstall MariaDB
   wnmp fixsshd       # Self-check and attempt to fix sshd
   wnmp ssl [rewrite|check|run|force [domain]] # SSL certificate management
+  wnmp dns [provider] # Configure ACME DNS API credentials (cf, dp, cx, gd, aws, ali, linode, freedns, he, namesilo, dgon, namecom)
   wnmp devssl        # Self-signed certificate
   wnmp sslcheck      # Install Certificate Renewal Script
   wnmp ssltest       # Perform SSL detection
@@ -109,6 +113,193 @@ Usage:
   wnmp fail2ban      # Install and configure fail2ban
   wnmp -h|--help     # Show help
 USAGE
+}
+
+# Configure acme.sh DNS API credentials. Values are stored in account.conf with
+# restrictive permissions so subsequent vhost issuance and renewals can reuse them.
+dns_provider_menu() {
+  local requested_provider="${1:-}"
+  local acme_home="${ACME_HOME:-$HOME/.acme.sh}"
+  local conf="${acme_home}/account.conf"
+  mkdir -p "$acme_home"
+  touch "$conf"
+  chmod 600 "$conf"
+  _dns_set() {
+    local key="$1" value="$2" escaped full_key
+    full_key="SAVED_${key}"
+    escaped="${value//\\/\\\\}"
+    escaped="${escaped//\'/\\\'}"
+    sed -i "/^${full_key}=/{d;}" "$conf"
+    printf "%s='%s'\n" "$full_key" "$escaped" >> "$conf"
+  }
+  _dns_read() {
+    local key="$1" value=""
+    value="${!key:-}"
+    if [[ -z "$value" && -f "$conf" ]]; then
+      value="$(sed -n "s/^SAVED_${key}='\\(.*\\)'$/\\1/p" "$conf" | tail -n1)"
+    fi
+    printf '%s' "$value"
+  }
+  while true; do
+    echo
+    green "============================================================"
+    green " ACME DNS API Provider"
+    green "============================================================"
+    cat <<'DNS_MENU'
+  1) Cloudflare (cf)      - CF_Token
+  2) DNSPod (dp)          - DP_Id + DP_Key
+  3) ClouDNS (cx)         - CLOUDNS_AUTH_ID + CLOUDNS_AUTH_PASSWORD
+  4) GoDaddy (gd)         - GD_Key + GD_Secret
+  5) AWS Route53 (aws)    - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+  6) Aliyun (ali)         - Ali_Key + Ali_Secret
+  7) Linode (linode)      - LINODE_V4_API_KEY
+  8) FreeDNS (freedns)    - FREEDSNS_User + FREEDSNS_Password
+  9) HE.net (he)          - HE_Username + HE_Password
+ 10) NameSilo (namesilo)  - Namesilo_Key
+ 11) DigitalOcean (dgon) - DO_API_KEY
+ 12) Name.com (namecom)   - Namecom_Username + Namecom_Token
+ 13) Webroot only (disable DNS API)
+  0) Back
+DNS_MENU
+    local choice provider v1 v2
+    if [[ -n "$requested_provider" ]]; then
+      case "$requested_provider" in cf) choice=1;; dp) choice=2;; cx|cloudns) choice=3;; gd) choice=4;; aws) choice=5;; ali) choice=6;; linode) choice=7;; freedns) choice=8;; he) choice=9;; namesilo) choice=10;; dgon|do|digitalocean) choice=11;; namecom) choice=12;; webroot) choice=13;; *) choice="";; esac
+      requested_provider=""
+    else
+      read -rp "Please select [0-13]: " choice || true
+    fi
+    case "$choice" in
+      1)
+        provider=cf
+        read -rp "Cloudflare credential type [token/key] (token): " mode
+        mode="${mode:-token}"
+        if [[ "${mode,,}" == "key" ]]; then
+          read -rsp "Cloudflare Global API Key: " v1; echo
+          read -rp "Cloudflare account email: " v2
+          [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] API key and email are required."; continue; }
+          _dns_set CF_Key "$v1"; _dns_set CF_Email "$v2"
+          echo "[dns] Cloudflare key/email saved (masked)."
+        else
+          read -rsp "Cloudflare API Token: " v1; echo
+          [[ -n "$v1" ]] || { echo "[dns] Token cannot be empty."; continue; }
+          _dns_set CF_Token "$v1"
+          echo "[dns] Cloudflare token saved (masked)."
+        fi
+        ;;
+      2)
+        provider=dp
+        read -rp "DNSPod API ID: " v1
+        read -rsp "DNSPod API Token: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] ID and token are required."; continue; }
+        _dns_set DP_Id "$v1"; _dns_set DP_Key "$v2"
+        echo "[dns] DNSPod credentials saved (masked)."
+        ;;
+      3)
+        provider=cloudns
+        read -rp "ClouDNS Auth ID: " v1
+        read -rsp "ClouDNS Auth Password: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Key and secret are required."; continue; }
+        _dns_set CLOUDNS_AUTH_ID "$v1"; _dns_set CLOUDNS_AUTH_PASSWORD "$v2"
+        echo "[dns] ClouDNS credentials saved (masked)."
+        ;;
+      4)
+        provider=gd
+        read -rp "GoDaddy API Key: " v1
+        read -rsp "GoDaddy API Secret: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Key and secret are required."; continue; }
+        _dns_set GD_Key "$v1"; _dns_set GD_Secret "$v2"
+        echo "[dns] GoDaddy credentials saved (masked)."
+        ;;
+      5)
+        provider=aws
+        read -rp "AWS Access Key ID: " v1
+        read -rsp "AWS Secret Access Key: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Access key and secret are required."; continue; }
+        _dns_set AWS_ACCESS_KEY_ID "$v1"; _dns_set AWS_SECRET_ACCESS_KEY "$v2"
+        echo "[dns] AWS credentials saved (masked)."
+        ;;
+      6)
+        provider=ali
+        read -rp "Aliyun AccessKey ID: " v1
+        read -rsp "Aliyun AccessKey Secret: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] AccessKey ID and secret are required."; continue; }
+        _dns_set Ali_Key "$v1"; _dns_set Ali_Secret "$v2"
+        echo "[dns] Aliyun credentials saved (masked)."
+        ;;
+      7)
+        provider=linode_v4
+        read -rsp "Linode API Token: " v1; echo
+        [[ -n "$v1" ]] || { echo "[dns] Token cannot be empty."; continue; }
+        _dns_set LINODE_V4_API_KEY "$v1"
+        echo "[dns] Linode token saved (masked)."
+        ;;
+      8)
+        provider=freedns
+        read -rp "FreeDNS username: " v1
+        read -rsp "FreeDNS password: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Username and password are required."; continue; }
+        _dns_set FREEDSNS_User "$v1"; _dns_set FREEDSNS_Password "$v2"
+        echo "[dns] FreeDNS credentials saved (masked)."
+        ;;
+      9)
+        provider=he
+        read -rp "HE.net username: " v1
+        read -rsp "HE.net password: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Username and password are required."; continue; }
+        _dns_set HE_Username "$v1"; _dns_set HE_Password "$v2"
+        echo "[dns] HE.net credentials saved (masked)."
+        ;;
+      10)
+        provider=namesilo
+        read -rsp "NameSilo API Key: " v1; echo
+        [[ -n "$v1" ]] || { echo "[dns] API key cannot be empty."; continue; }
+        _dns_set Namesilo_Key "$v1"
+        echo "[dns] NameSilo key saved (masked)."
+        ;;
+      11)
+        provider=dgon
+        read -rsp "DigitalOcean API Token: " v1; echo
+        [[ -n "$v1" ]] || { echo "[dns] Token cannot be empty."; continue; }
+        _dns_set DO_API_KEY "$v1"
+        echo "[dns] DigitalOcean token saved (masked)."
+        ;;
+      12)
+        provider=namecom
+        read -rp "Name.com username: " v1
+        read -rsp "Name.com token: " v2; echo
+        [[ -n "$v1" && -n "$v2" ]] || { echo "[dns] Username and token are required."; continue; }
+        _dns_set Namecom_Username "$v1"; _dns_set Namecom_Token "$v2"
+        echo "[dns] Name.com credentials saved (masked)."
+        ;;
+      13)
+        provider=webroot
+        ;;
+      0) return 0 ;;
+      *) echo "[dns] Invalid selection: $choice"; continue ;;
+    esac
+    _dns_set WNMP_DNS_PROVIDER "$provider"
+    echo "[dns] Provider selected: $provider"
+    return 0
+  done
+}
+
+dns_provider_command() {
+  case "${1:-}" in
+    cf|dp|cx|cloudns|gd|aws|ali|linode|linode_v4|freedns|he|namesilo|dgon|do|digitalocean|namecom|webroot)
+      local wanted="$1"
+      dns_provider_menu "$wanted"
+      ;;
+    *) dns_provider_menu ;;
+  esac
+}
+
+dns_get_value() {
+  local key="$1" conf="${ACME_HOME:-$HOME/.acme.sh}/account.conf" value=""
+  value="${!key:-}"
+  if [[ -z "$value" && -f "$conf" ]]; then
+    value="$(sed -n "s/^SAVED_${key}='\\(.*\\)'$/\\1/p" "$conf" | tail -n1)"
+  fi
+  printf '%s' "$value"
 }
 configure_fail2ban() {
   echo "=========================================="
@@ -202,13 +393,14 @@ ssl_certificate_menu() {
   3) Run sslcheck now (renew and install expiring certificates)
   4) Force reissue a deployed domain certificate
   5) Create a self-signed certificate
+  6) Configure ACME DNS API provider
   0) Back
 SSL_MENU
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-5]: " choice </dev/tty || true
+      read -rp "Please select [0-6]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-5]: " choice || true
+      read -rp "Please select [0-6]: " choice || true
     fi
     case "$choice" in
       1) wnmp_sslcheck ;;
@@ -222,6 +414,7 @@ SSL_MENU
         ;;
       4) wnmp_ssl_force_issue ;;
       5) devssl ;;
+      6) dns_provider_menu ;;
       0) return 0 ;;
       *) echo "[ssl] Invalid selection: $choice" ;;
     esac
@@ -354,18 +547,19 @@ main_menu() {
  11) Upgrade components                 (wnmp update nginx / wnmp update php)
  12) Self-check and attempt to fix sshd  (wnmp fixsshd)
  13) SSL certificate management          (wnmp ssl)
- 14) Install Cloudflare real IP task     (wnmp cf)
- 15) Install and configure fail2ban      (wnmp fail2ban)
- 16) Nginx reverse proxy management      (wnmp proxy)
- 17) Update WNMP script                  (wnmp update / wnmp update force)
+ 14) Configure ACME DNS API provider     (wnmp dns)
+ 15) Install Cloudflare real IP task     (wnmp cf)
+ 16) Install and configure fail2ban      (wnmp fail2ban)
+ 17) Nginx reverse proxy management      (wnmp proxy)
+ 18) Update WNMP script                  (wnmp update / wnmp update force)
   0) Exit
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-17]: " choice </dev/tty || true
+      read -rp "Please select [0-18]: " choice </dev/tty || true
   else
-    read -rp "Please select [0-17]: " choice || true
+      read -rp "Please select [0-18]: " choice || true
   fi
 
   case "${choice}" in
@@ -382,10 +576,11 @@ MENU
     11) upgrade_components_menu; main_menu; exit 0 ;;
     12) fixsshd; exit 0 ;;
     13) ssl_certificate_menu; main_menu; exit 0 ;;
-    14) cf; exit 0 ;;
-    15) configure_fail2ban; exit 0 ;;
-    16) reverse_proxy_menu; main_menu; exit 0 ;;
-    17) wnmp_update; exit 0 ;;
+    14) dns_provider_menu; main_menu; exit 0 ;;
+    15) cf; exit 0 ;;
+    16) configure_fail2ban; exit 0 ;;
+    17) reverse_proxy_menu; main_menu; exit 0 ;;
+    18) wnmp_update; exit 0 ;;
     0) echo "[info] Bye."; exit 0 ;;
     *) echo "[setup] Invalid selection: ${choice}"; usage; exit 1 ;;
   esac
@@ -2541,20 +2736,6 @@ EOF
     echo "[vhost][ERROR] nginx Configuration check failed."; return 1
   fi
 
-  get_cf_token() {
-    local token_file="$acme_home/account.conf"
-    if [[ -n "${CF_Token:-}" ]]; then
-      echo "$CF_Token"; return 0
-    fi
-    if [[ -f "$token_file" ]]; then
-      local _t
-      _t="$(grep -E "^SAVED_CF_Token=" "$token_file" | cut -d"'" -f2 || true)"
-      [[ -z "$_t" ]] && _t="$(grep -E "^SAVED_CF_Key=" "$token_file" | cut -d"'" -f2 || true)"
-      [[ -n "$_t" ]] && { echo "$_t"; return 0; }
-    fi
-    return 1
-  }
-
   local ssl_dir="/usr/local/nginx/ssl/${primary}"
   local cert_success=0
   if [[ "$issue_cert" == "y" ]]; then
@@ -2564,19 +2745,73 @@ EOF
       echo "[safe] The operation has been canceled. No changes were made."; return 0
     fi
 
-    local CF_Token_val="" dns_cf_ok=0
-    CF_Token_val="$(get_cf_token || true)"
-    [[ -n "$CF_Token_val" && -f "$acme_home/dnsapi/dns_cf.sh" ]] && dns_cf_ok=1
-    echo "[vhost][INFO] CF_Token: $( [[ -n "${CF_Token_val:-}" ]] && echo "${CF_Token_val:0:6}******" || echo "<none>" )"
-    echo "[vhost][INFO] dns_cf.sh: $( [[ $dns_cf_ok -eq 1 ]] && echo found || echo missing )"
+    local dns_provider="$(dns_get_value WNMP_DNS_PROVIDER)"
+    local CF_Token_val CF_Key_val CF_Email_val DP_Id_val DP_Key_val CLOUDNS_AUTH_ID_val CLOUDNS_AUTH_PASSWORD_val GD_Key_val GD_Secret_val AWS_ACCESS_KEY_ID_val AWS_SECRET_ACCESS_KEY_val Ali_Key_val Ali_Secret_val LINODE_V4_API_KEY_val FREEDSNS_User_val FREEDSNS_Password_val HE_Username_val HE_Password_val Namesilo_Key_val DO_API_KEY_val Namecom_Username_val Namecom_Token_val
+    CF_Token_val="$(dns_get_value CF_Token)"
+    CF_Key_val="$(dns_get_value CF_Key)"; CF_Email_val="$(dns_get_value CF_Email)"
+    DP_Id_val="$(dns_get_value DP_Id)"; DP_Key_val="$(dns_get_value DP_Key)"
+    CLOUDNS_AUTH_ID_val="$(dns_get_value CLOUDNS_AUTH_ID)"; CLOUDNS_AUTH_PASSWORD_val="$(dns_get_value CLOUDNS_AUTH_PASSWORD)"
+    GD_Key_val="$(dns_get_value GD_Key)"; GD_Secret_val="$(dns_get_value GD_Secret)"
+    AWS_ACCESS_KEY_ID_val="$(dns_get_value AWS_ACCESS_KEY_ID)"; AWS_SECRET_ACCESS_KEY_val="$(dns_get_value AWS_SECRET_ACCESS_KEY)"
+    Ali_Key_val="$(dns_get_value Ali_Key)"; Ali_Secret_val="$(dns_get_value Ali_Secret)"
+    LINODE_V4_API_KEY_val="$(dns_get_value LINODE_V4_API_KEY)"
+    FREEDSNS_User_val="$(dns_get_value FREEDSNS_User)"; FREEDSNS_Password_val="$(dns_get_value FREEDSNS_Password)"
+    HE_Username_val="$(dns_get_value HE_Username)"; HE_Password_val="$(dns_get_value HE_Password)"
+    Namesilo_Key_val="$(dns_get_value Namesilo_Key)"
+    DO_API_KEY_val="$(dns_get_value DO_API_KEY)"
+    Namecom_Username_val="$(dns_get_value Namecom_Username)"; Namecom_Token_val="$(dns_get_value Namecom_Token)"
+    if [[ -z "$dns_provider" ]]; then
+      [[ -n "$CF_Token_val" || ( -n "$CF_Key_val" && -n "$CF_Email_val" ) ]] && dns_provider=cf || dns_provider=webroot
+    fi
+    case "$dns_provider" in
+      cx) dns_provider=cloudns ;;
+      linode) dns_provider=linode_v4 ;;
+    esac
+    local dns_script="" dns_ready=0
+    case "$dns_provider" in
+      cf)  dns_script="$acme_home/dnsapi/dns_cf.sh"; [[ -n "$CF_Token_val" || ( -n "$CF_Key_val" && -n "$CF_Email_val" ) ]] && dns_ready=1 ;;
+      dp)  dns_script="$acme_home/dnsapi/dns_dp.sh"; [[ -n "$DP_Id_val" && -n "$DP_Key_val" ]] && dns_ready=1 ;;
+      cloudns)  dns_script="$acme_home/dnsapi/dns_cloudns.sh"; [[ -n "$CLOUDNS_AUTH_ID_val" && -n "$CLOUDNS_AUTH_PASSWORD_val" ]] && dns_ready=1 ;;
+      gd)  dns_script="$acme_home/dnsapi/dns_gd.sh"; [[ -n "$GD_Key_val" && -n "$GD_Secret_val" ]] && dns_ready=1 ;;
+      aws) dns_script="$acme_home/dnsapi/dns_aws.sh"; [[ -n "$AWS_ACCESS_KEY_ID_val" && -n "$AWS_SECRET_ACCESS_KEY_val" ]] && dns_ready=1 ;;
+      ali) dns_script="$acme_home/dnsapi/dns_ali.sh"; [[ -n "$Ali_Key_val" && -n "$Ali_Secret_val" ]] && dns_ready=1 ;;
+      linode_v4) dns_script="$acme_home/dnsapi/dns_linode_v4.sh"; [[ -n "$LINODE_V4_API_KEY_val" ]] && dns_ready=1 ;;
+      freedns) dns_script="$acme_home/dnsapi/dns_freedns.sh"; [[ -n "$FREEDSNS_User_val" && -n "$FREEDSNS_Password_val" ]] && dns_ready=1 ;;
+      he) dns_script="$acme_home/dnsapi/dns_he.sh"; [[ -n "$HE_Username_val" && -n "$HE_Password_val" ]] && dns_ready=1 ;;
+      namesilo) dns_script="$acme_home/dnsapi/dns_namesilo.sh"; [[ -n "$Namesilo_Key_val" ]] && dns_ready=1 ;;
+      dgon) dns_script="$acme_home/dnsapi/dns_dgon.sh"; [[ -n "$DO_API_KEY_val" ]] && dns_ready=1 ;;
+      namecom) dns_script="$acme_home/dnsapi/dns_namecom.sh"; [[ -n "$Namecom_Username_val" && -n "$Namecom_Token_val" ]] && dns_ready=1 ;;
+      *) dns_provider=webroot ;;
+    esac
+    [[ -x "$dns_script" || -f "$dns_script" ]] || dns_ready=0
+    echo "[vhost][INFO] DNS provider: ${dns_provider} (dnsapi $( [[ $dns_ready -eq 1 ]] && echo ready || echo unavailable ))"
 
     mkdir -p "$ssl_dir"
     local -a args
-    if [[ $dns_cf_ok -eq 1 ]]; then
-      echo "[vhost][ISSUE] Use dns_cf to issue certificates for all domains in a single operation...."
-      args=( --issue --server letsencrypt --dns dns_cf -d "$primary" )
+    if [[ $dns_ready -eq 1 ]]; then
+      echo "[vhost][ISSUE] Use dns_${dns_provider} to issue certificates for all domains in a single operation...."
+      args=( --issue --server letsencrypt --dns "dns_${dns_provider}" -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
-      CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
+      case "$dns_provider" in
+        cf)
+          if [[ -n "$CF_Token_val" ]]; then
+            CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
+          else
+            CF_Key="$CF_Key_val" CF_Email="$CF_Email_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
+          fi
+          ;;
+        dp)  DP_Id="$DP_Id_val" DP_Key="$DP_Key_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        cloudns)  CLOUDNS_AUTH_ID="$CLOUDNS_AUTH_ID_val" CLOUDNS_AUTH_PASSWORD="$CLOUDNS_AUTH_PASSWORD_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        gd)  GD_Key="$GD_Key_val" GD_Secret="$GD_Secret_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        aws) AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID_val" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        ali) Ali_Key="$Ali_Key_val" Ali_Secret="$Ali_Secret_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        linode_v4) LINODE_V4_API_KEY="$LINODE_V4_API_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        freedns) FREEDSNS_User="$FREEDSNS_User_val" FREEDSNS_Password="$FREEDSNS_Password_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        he) HE_Username="$HE_Username_val" HE_Password="$HE_Password_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        namesilo) Namesilo_Key="$Namesilo_Key_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        dgon) DO_API_KEY="$DO_API_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        namecom) Namecom_Username="$Namecom_Username_val" Namecom_Token="$Namecom_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+      esac
     else
       echo "[vhost][ISSUE] Use Webroot to issue certificates for all domains in one go..."
       args=( --issue --server letsencrypt -d "$primary" )
@@ -5688,6 +5923,10 @@ for arg in "$@"; do
      ssl|sslcert|sslmanage)
        shift
        ssl_certificate_command "$@"
+       exit $? ;;
+     dns|dnsapi)
+       shift
+       dns_provider_command "${1:-}"
        exit $? ;;
      remove) remove; exit 0 ;;
      renginx) renginx; exit 0 ;;

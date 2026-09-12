@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.56
+# Version: 1.57
+# v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持多家 DNS 服务商及自动 dnsapi 签发。
 # v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
 # v1.55 2026-09-02：更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
 # v1.54 2026-08-27：修复精简系统写入 PATH 配置时可能导致安装退出的问题；新增 Nginx、PHP、MariaDB 独立安装，收纳组件删除/升级菜单，并支持反向代理通过 Webroot HTTP-01 申请 SSL 证书。
@@ -71,7 +72,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.56"
+  green  " [init] Version: 1.57"
 green  "============================================================"
 echo
 sleep 1
@@ -102,6 +103,7 @@ usage() {
   wnmp remariadb     # 卸载mariadb
   wnmp fixsshd       # 自检sshd尝试修复
   wnmp ssl [rewrite|check|run|force [domain]] # SSL 证书管理
+  wnmp dns [provider] # 配置 ACME DNS API（cf, dp, cx, gd, aws, ali, linode, freedns, he, namesilo, dgon, namecom）
   wnmp devssl        # 自签证书
   wnmp sslcheck      # 安装证书续签脚本
   wnmp ssltest       # 执行ssl检测
@@ -110,6 +112,57 @@ usage() {
   wnmp -h|--help     # 查看帮助
 USAGE
 }
+
+# 配置 acme.sh DNS API 凭据，写入 account.conf 并限制为仅 root 可读。
+dns_provider_menu() {
+  local requested="${1:-}" home="${ACME_HOME:-$HOME/.acme.sh}" conf provider choice a b
+  mkdir -p "$home"; conf="$home/account.conf"; touch "$conf"; chmod 600 "$conf"
+  _dns_set() { local k="$1" v="$2" e; e="${v//\\/\\\\}"; e="${e//\'/\\\'}"; sed -i "/^SAVED_${k}=/{d;}" "$conf"; printf "SAVED_%s='%s'\n" "$k" "$e" >> "$conf"; }
+  while true; do
+    echo; green "============================================================"; green " ACME DNS API 配置"; green "============================================================"
+    cat <<'DNS_MENU'
+  1) Cloudflare (cf)       - CF_Token 或 CF_Key + CF_Email
+  2) DNSPod (dp)           - DP_Id + DP_Key
+  3) ClouDNS (cx)          - CLOUDNS_AUTH_ID + CLOUDNS_AUTH_PASSWORD
+  4) GoDaddy (gd)          - GD_Key + GD_Secret
+  5) AWS Route53 (aws)     - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+  6) 阿里云 (ali)           - Ali_Key + Ali_Secret
+  7) Linode (linode)       - LINODE_V4_API_KEY
+  8) FreeDNS (freedns)     - FREEDSNS_User + FREEDSNS_Password
+  9) HE.net (he)           - HE_Username + HE_Password
+ 10) NameSilo (namesilo)   - Namesilo_Key
+ 11) DigitalOcean (dgon)  - DO_API_KEY
+ 12) Name.com (namecom)   - Namecom_Username + Namecom_Token
+ 13) 仅使用 Webroot（禁用 DNS API）
+  0) 返回
+DNS_MENU
+    if [[ -n "$requested" ]]; then
+      case "$requested" in cf) choice=1;; dp) choice=2;; cx|cloudns) choice=3;; gd) choice=4;; aws) choice=5;; ali) choice=6;; linode|linode_v4) choice=7;; freedns) choice=8;; he) choice=9;; namesilo) choice=10;; dgon|do|digitalocean) choice=11;; namecom) choice=12;; webroot) choice=13;; *) choice="";; esac
+      requested=""
+    else read -rp "请选择 [0-13]: " choice || true; fi
+    case "$choice" in
+      1) provider=cf; read -rp "Cloudflare 凭据类型 [token/key]（默认 token）: " a; a="${a:-token}"; if [[ "${a,,}" == key ]]; then read -rsp "Global API Key: " a; echo; read -rp "账户邮箱: " b; [[ -n "$a" && -n "$b" ]] || { echo "[dns] API Key 和邮箱不能为空。"; continue; }; _dns_set CF_Key "$a"; _dns_set CF_Email "$b"; else read -rsp "API Token: " a; echo; [[ -n "$a" ]] || { echo "[dns] Token 不能为空。"; continue; }; _dns_set CF_Token "$a"; fi ;;
+      2) provider=dp; read -rp "DNSPod API ID: " a; read -rsp "DNSPod API Token: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] ID 和 Token 不能为空。"; continue; }; _dns_set DP_Id "$a"; _dns_set DP_Key "$b" ;;
+      3) provider=cloudns; read -rp "ClouDNS Auth ID: " a; read -rsp "ClouDNS Auth Password: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] ID 和密码不能为空。"; continue; }; _dns_set CLOUDNS_AUTH_ID "$a"; _dns_set CLOUDNS_AUTH_PASSWORD "$b" ;;
+      4) provider=gd; read -rp "GoDaddy API Key: " a; read -rsp "GoDaddy API Secret: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] Key 和 Secret 不能为空。"; continue; }; _dns_set GD_Key "$a"; _dns_set GD_Secret "$b" ;;
+      5) provider=aws; read -rp "AWS Access Key ID: " a; read -rsp "AWS Secret Access Key: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] Access Key 和 Secret 不能为空。"; continue; }; _dns_set AWS_ACCESS_KEY_ID "$a"; _dns_set AWS_SECRET_ACCESS_KEY "$b" ;;
+      6) provider=ali; read -rp "阿里云 AccessKey ID: " a; read -rsp "阿里云 AccessKey Secret: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] AccessKey 不能为空。"; continue; }; _dns_set Ali_Key "$a"; _dns_set Ali_Secret "$b" ;;
+      7) provider=linode_v4; read -rsp "Linode API Token: " a; echo; [[ -n "$a" ]] || { echo "[dns] Token 不能为空。"; continue; }; _dns_set LINODE_V4_API_KEY "$a" ;;
+      8) provider=freedns; read -rp "FreeDNS 用户名: " a; read -rsp "FreeDNS 密码: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] 用户名和密码不能为空。"; continue; }; _dns_set FREEDSNS_User "$a"; _dns_set FREEDSNS_Password "$b" ;;
+      9) provider=he; read -rp "HE.net 用户名: " a; read -rsp "HE.net 密码: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] 用户名和密码不能为空。"; continue; }; _dns_set HE_Username "$a"; _dns_set HE_Password "$b" ;;
+      10) provider=namesilo; read -rsp "NameSilo API Key: " a; echo; [[ -n "$a" ]] || { echo "[dns] API Key 不能为空。"; continue; }; _dns_set Namesilo_Key "$a" ;;
+      11) provider=dgon; read -rsp "DigitalOcean API Token: " a; echo; [[ -n "$a" ]] || { echo "[dns] Token 不能为空。"; continue; }; _dns_set DO_API_KEY "$a" ;;
+      12) provider=namecom; read -rp "Name.com 用户名: " a; read -rsp "Name.com Token: " b; echo; [[ -n "$a" && -n "$b" ]] || { echo "[dns] 用户名和 Token 不能为空。"; continue; }; _dns_set Namecom_Username "$a"; _dns_set Namecom_Token "$b" ;;
+      13) provider=webroot ;;
+      0) return 0 ;;
+      *) echo "[dns] 无效选项：$choice"; continue ;;
+    esac
+    _dns_set WNMP_DNS_PROVIDER "$provider"; echo "[dns] 已选择：$provider"; return 0
+  done
+}
+
+dns_provider_command() { case "${1:-}" in cf|dp|cx|cloudns|gd|aws|ali|linode|linode_v4|freedns|he|namesilo|dgon|do|digitalocean|namecom|webroot) dns_provider_menu "$1" ;; *) dns_provider_menu ;; esac; }
+dns_get_value() { local k="$1" c="${ACME_HOME:-$HOME/.acme.sh}/account.conf" v="${!1:-}"; [[ -n "$v" ]] || [[ ! -f "$c" ]] || v="$(sed -n "s/^SAVED_${k}='\\(.*\\)'$/\\1/p" "$c" | tail -n1)"; printf '%s' "$v"; }
 configure_fail2ban() {
   echo "=========================================="
   echo "[+] 正在安装并配置 fail2ban..."
@@ -202,13 +255,14 @@ ssl_certificate_menu() {
   3) 立即运行 sslcheck（续签并安装即将到期证书）
   4) 强制重新签发已部署的域名证书
   5) 创建自签名证书
+  6) 配置 ACME DNS API
   0) 返回
 SSL_MENU
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "请选择 [0-5]: " choice </dev/tty || true
+      read -rp "请选择 [0-6]: " choice </dev/tty || true
     else
-      read -rp "请选择 [0-5]: " choice || true
+      read -rp "请选择 [0-6]: " choice || true
     fi
     case "$choice" in
       1) wnmp_sslcheck ;;
@@ -222,6 +276,7 @@ SSL_MENU
         ;;
       4) wnmp_ssl_force_issue ;;
       5) devssl ;;
+      6) dns_provider_menu ;;
       0) return 0 ;;
       *) echo "[ssl] 无效选择: $choice" ;;
     esac
@@ -354,18 +409,19 @@ main_menu() {
  11) 升级组件                            (wnmp update nginx / update php)
  12) 自检sshd尝试修复                    (wnmp fixsshd)
  13) SSL 证书管理                        (wnmp ssl)
- 14) 安装cloudflare 真实IP更新任务       (wnmp cf)
- 15) 安装并配置 fail2ban                 (wnmp fail2ban)
- 16) Nginx 反向代理管理                  (wnmp proxy)
- 17) 升级 WNMP 脚本本体                  (wnmp update / wnmp update force)
+ 14) 配置 ACME DNS API                   (wnmp dns)
+ 15) 安装cloudflare 真实IP更新任务       (wnmp cf)
+ 16) 安装并配置 fail2ban                 (wnmp fail2ban)
+ 17) Nginx 反向代理管理                  (wnmp proxy)
+ 18) 升级 WNMP 脚本本体                  (wnmp update / wnmp update force)
   0) 退出
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-      read -rp "请选择 [0-17]: " choice </dev/tty || true
+      read -rp "请选择 [0-18]: " choice </dev/tty || true
   else
-    read -rp "请选择 [0-17]: " choice || true
+    read -rp "请选择 [0-18]: " choice || true
   fi
 
   case "${choice}" in
@@ -382,10 +438,11 @@ MENU
     11) upgrade_components_menu; main_menu; exit 0 ;;
     12) fixsshd; exit 0 ;;
     13) ssl_certificate_menu; main_menu; exit 0 ;;
-    14) cf; exit 0 ;;
-    15) configure_fail2ban; exit 0 ;;
-    16) reverse_proxy_menu; main_menu; exit 0 ;;
-    17) wnmp_update; exit 0 ;;
+    14) dns_provider_menu; main_menu; exit 0 ;;
+    15) cf; exit 0 ;;
+    16) configure_fail2ban; exit 0 ;;
+    17) reverse_proxy_menu; main_menu; exit 0 ;;
+    18) wnmp_update; exit 0 ;;
     0) echo "[info] 已退出。"; exit 0 ;;
     *) echo "[setup] 无效选择: ${choice}"; usage; exit 1 ;;
   esac
@@ -2542,20 +2599,6 @@ EOF
     echo "[vhost][ERROR] nginx 配置检查失败。"; return 1
   fi
 
-  get_cf_token() {
-    local token_file="$acme_home/account.conf"
-    if [[ -n "${CF_Token:-}" ]]; then
-      echo "$CF_Token"; return 0
-    fi
-    if [[ -f "$token_file" ]]; then
-      local _t
-      _t="$(grep -E "^SAVED_CF_Token=" "$token_file" | cut -d"'" -f2 || true)"
-      [[ -z "$_t" ]] && _t="$(grep -E "^SAVED_CF_Key=" "$token_file" | cut -d"'" -f2 || true)"
-      [[ -n "$_t" ]] && { echo "$_t"; return 0; }
-    fi
-    return 1
-  }
-
   local ssl_dir="/usr/local/nginx/ssl/${primary}"
   local cert_success=0
   if [[ "$issue_cert" == "y" ]]; then
@@ -2565,19 +2608,55 @@ EOF
       echo "[safe] 已取消操作。未作任何更改。"; return 0
     fi
 
-    local CF_Token_val="" dns_cf_ok=0
-    CF_Token_val="$(get_cf_token || true)"
-    [[ -n "$CF_Token_val" && -f "$acme_home/dnsapi/dns_cf.sh" ]] && dns_cf_ok=1
-    echo "[vhost][INFO] CF_Token: $( [[ -n "${CF_Token_val:-}" ]] && echo "${CF_Token_val:0:6}******" || echo "<none>" )"
-    echo "[vhost][INFO] dns_cf.sh: $( [[ $dns_cf_ok -eq 1 ]] && echo found || echo missing )"
+    local dns_provider="$(dns_get_value WNMP_DNS_PROVIDER)"
+    local CF_Token_val CF_Key_val CF_Email_val DP_Id_val DP_Key_val CLOUDNS_AUTH_ID_val CLOUDNS_AUTH_PASSWORD_val GD_Key_val GD_Secret_val AWS_ACCESS_KEY_ID_val AWS_SECRET_ACCESS_KEY_val Ali_Key_val Ali_Secret_val LINODE_V4_API_KEY_val FREEDSNS_User_val FREEDSNS_Password_val HE_Username_val HE_Password_val Namesilo_Key_val DO_API_KEY_val Namecom_Username_val Namecom_Token_val
+    CF_Token_val="$(dns_get_value CF_Token)"; CF_Key_val="$(dns_get_value CF_Key)"; CF_Email_val="$(dns_get_value CF_Email)"
+    DP_Id_val="$(dns_get_value DP_Id)"; DP_Key_val="$(dns_get_value DP_Key)"
+    CLOUDNS_AUTH_ID_val="$(dns_get_value CLOUDNS_AUTH_ID)"; CLOUDNS_AUTH_PASSWORD_val="$(dns_get_value CLOUDNS_AUTH_PASSWORD)"
+    GD_Key_val="$(dns_get_value GD_Key)"; GD_Secret_val="$(dns_get_value GD_Secret)"
+    AWS_ACCESS_KEY_ID_val="$(dns_get_value AWS_ACCESS_KEY_ID)"; AWS_SECRET_ACCESS_KEY_val="$(dns_get_value AWS_SECRET_ACCESS_KEY)"
+    Ali_Key_val="$(dns_get_value Ali_Key)"; Ali_Secret_val="$(dns_get_value Ali_Secret)"; LINODE_V4_API_KEY_val="$(dns_get_value LINODE_V4_API_KEY)"
+    FREEDSNS_User_val="$(dns_get_value FREEDSNS_User)"; FREEDSNS_Password_val="$(dns_get_value FREEDSNS_Password)"; HE_Username_val="$(dns_get_value HE_Username)"; HE_Password_val="$(dns_get_value HE_Password)"
+    Namesilo_Key_val="$(dns_get_value Namesilo_Key)"; DO_API_KEY_val="$(dns_get_value DO_API_KEY)"; Namecom_Username_val="$(dns_get_value Namecom_Username)"; Namecom_Token_val="$(dns_get_value Namecom_Token)"
+    [[ -z "$dns_provider" ]] && { [[ -n "$CF_Token_val" || ( -n "$CF_Key_val" && -n "$CF_Email_val" ) ]] && dns_provider=cf || dns_provider=webroot; }
+    case "$dns_provider" in cx) dns_provider=cloudns;; linode) dns_provider=linode_v4;; esac
+    local dns_script="" dns_ready=0
+    case "$dns_provider" in
+      cf) dns_script="$acme_home/dnsapi/dns_cf.sh"; [[ -n "$CF_Token_val" || ( -n "$CF_Key_val" && -n "$CF_Email_val" ) ]] && dns_ready=1;;
+      dp) dns_script="$acme_home/dnsapi/dns_dp.sh"; [[ -n "$DP_Id_val" && -n "$DP_Key_val" ]] && dns_ready=1;;
+      cloudns) dns_script="$acme_home/dnsapi/dns_cloudns.sh"; [[ -n "$CLOUDNS_AUTH_ID_val" && -n "$CLOUDNS_AUTH_PASSWORD_val" ]] && dns_ready=1;;
+      gd) dns_script="$acme_home/dnsapi/dns_gd.sh"; [[ -n "$GD_Key_val" && -n "$GD_Secret_val" ]] && dns_ready=1;;
+      aws) dns_script="$acme_home/dnsapi/dns_aws.sh"; [[ -n "$AWS_ACCESS_KEY_ID_val" && -n "$AWS_SECRET_ACCESS_KEY_val" ]] && dns_ready=1;;
+      ali) dns_script="$acme_home/dnsapi/dns_ali.sh"; [[ -n "$Ali_Key_val" && -n "$Ali_Secret_val" ]] && dns_ready=1;;
+      linode_v4) dns_script="$acme_home/dnsapi/dns_linode_v4.sh"; [[ -n "$LINODE_V4_API_KEY_val" ]] && dns_ready=1;;
+      freedns) dns_script="$acme_home/dnsapi/dns_freedns.sh"; [[ -n "$FREEDSNS_User_val" && -n "$FREEDSNS_Password_val" ]] && dns_ready=1;;
+      he) dns_script="$acme_home/dnsapi/dns_he.sh"; [[ -n "$HE_Username_val" && -n "$HE_Password_val" ]] && dns_ready=1;;
+      namesilo) dns_script="$acme_home/dnsapi/dns_namesilo.sh"; [[ -n "$Namesilo_Key_val" ]] && dns_ready=1;;
+      dgon) dns_script="$acme_home/dnsapi/dns_dgon.sh"; [[ -n "$DO_API_KEY_val" ]] && dns_ready=1;;
+      namecom) dns_script="$acme_home/dnsapi/dns_namecom.sh"; [[ -n "$Namecom_Username_val" && -n "$Namecom_Token_val" ]] && dns_ready=1;;
+    esac
+    [[ -x "$dns_script" || -f "$dns_script" ]] || dns_ready=0
 
     mkdir -p "$ssl_dir"
     local -a args
-    if [[ $dns_cf_ok -eq 1 ]]; then
-      echo "[vhost][ISSUE] 使用 dns_cf 为所有域名一次性签发..."
-      args=( --issue --server letsencrypt --dns dns_cf -d "$primary" )
+    if [[ $dns_ready -eq 1 ]]; then
+      echo "[vhost][ISSUE] 使用 dns_${dns_provider} 为所有域名一次性签发..."
+      args=( --issue --server letsencrypt --dns "dns_${dns_provider}" -d "$primary" )
       for d in "${others[@]}"; do args+=( -d "$d" ); done
-      CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true
+      case "$dns_provider" in
+        cf) if [[ -n "$CF_Token_val" ]]; then CF_Token="$CF_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true; else CF_Key="$CF_Key_val" CF_Email="$CF_Email_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true; fi ;;
+        dp) DP_Id="$DP_Id_val" DP_Key="$DP_Key_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        cloudns) CLOUDNS_AUTH_ID="$CLOUDNS_AUTH_ID_val" CLOUDNS_AUTH_PASSWORD="$CLOUDNS_AUTH_PASSWORD_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        gd) GD_Key="$GD_Key_val" GD_Secret="$GD_Secret_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        aws) AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID_val" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        ali) Ali_Key="$Ali_Key_val" Ali_Secret="$Ali_Secret_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        linode_v4) LINODE_V4_API_KEY="$LINODE_V4_API_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        freedns) FREEDSNS_User="$FREEDSNS_User_val" FREEDSNS_Password="$FREEDSNS_Password_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        he) HE_Username="$HE_Username_val" HE_Password="$HE_Password_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        namesilo) Namesilo_Key="$Namesilo_Key_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        dgon) DO_API_KEY="$DO_API_KEY_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+        namecom) Namecom_Username="$Namecom_Username_val" Namecom_Token="$Namecom_Token_val" "$acme_bin" "${args[@]}" --keylength ec-256 || true ;;
+      esac
     else
       echo "[vhost][ISSUE] 使用 webroot 为所有域名一次性签发..."
       args=( --issue --server letsencrypt -d "$primary" )
@@ -5689,6 +5768,10 @@ for arg in "$@"; do
      ssl|sslcert|sslmanage)
        shift
        ssl_certificate_command "$@"
+       exit $? ;;
+     dns|dnsapi)
+       shift
+       dns_provider_command "${1:-}"
        exit $? ;;
      remove) remove; exit 0 ;;
      renginx) renginx; exit 0 ;;
