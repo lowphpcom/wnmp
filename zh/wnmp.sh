@@ -5031,6 +5031,9 @@ wnmp_self_update() {
     return 1
   fi
 
+  # 部分镜像返回 CRLF，Linux shebang 会变成 bash\r 而无法执行。
+  sed -i 's/\r$//' "$tmp" || true
+
   if ! head -n 1 "$tmp" | grep -Eq 'bash|sh'; then
     echo "[update][ERROR] 下载的文件不是有效的 WNMP 脚本"
     rm -f "$tmp"

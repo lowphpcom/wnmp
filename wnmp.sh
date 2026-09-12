@@ -5186,6 +5186,9 @@ wnmp_self_update() {
     return 1
   fi
 
+  # Some mirrors/web servers return CRLF, which breaks the Linux shebang as bash\r.
+  sed -i 's/\r$//' "$tmp" || true
+
   if ! head -n 1 "$tmp" | grep -Eq 'bash|sh'; then
     echo "[update][ERROR] Downloaded file is not a valid WNMP script"
     rm -f "$tmp"
