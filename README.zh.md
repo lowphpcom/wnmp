@@ -34,6 +34,10 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.58 2026-09-14：创建虚拟主机时支持可选自定义 /home/wwwroot 下的站点目录名；仅在明确选择开启 WebDAV 时注入配置；修复已失效隧道IP。
+
+v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持 Cloudflare、DNSPod、ClouDNS、GoDaddy、AWS、阿里云、Linode、FreeDNS、HE.net、NameSilo、DigitalOcean 和 Name.com。
+
 v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
 
 v1.55 2026-09-02 更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。

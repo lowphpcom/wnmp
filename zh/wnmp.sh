@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.57
+# Version: 1.58
+# v1.58 2026-09-14：创建虚拟主机时支持可选自定义 /home/wwwroot 下的站点目录名；仅在明确选择开启 WebDAV 时注入配置；修复已失效隧道IP。
 # v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持多家 DNS 服务商及自动 dnsapi 签发。
 # v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
 # v1.55 2026-09-02：更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
@@ -72,7 +73,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.57"
+  green  " [init] Version: 1.58"
 green  "============================================================"
 echo
 sleep 1
@@ -1349,7 +1350,7 @@ enable_proxy() {
   local SSH_HOSTS=(
     "51.68.174.84"
     "85.121.48.221"
-    "107.150.7.192"
+    "157.254.234.252"
   )
 
   local LOCAL_BIND="127.0.0.1"
@@ -1674,6 +1675,15 @@ proxy_healthcheck() {
 
 
 
+wnmp_vhost_site_root_from_conf() {
+  local conf="$1" configured_root site_dir_name
+  [[ -f "$conf" ]] || return 1
+  configured_root="$(awk '$1 == "root" { path=$2; sub(/;$/, "", path); if (path ~ /^\/home\/wwwroot\/[A-Za-z0-9._-]+$/) { print path; exit } }' "$conf" 2>/dev/null || true)"
+  site_dir_name="${configured_root#/home/wwwroot/}"
+  [[ -n "$configured_root" && "$configured_root" == /home/wwwroot/* && "$site_dir_name" =~ ^[A-Za-z0-9._-]+$ && "$site_dir_name" != "." && "$site_dir_name" != ".." ]] || return 1
+  printf '%s\n' "$configured_root"
+}
+
 wnmp_webdav_conf_has_ssl() {
   local conf="$1"
   local cert key
@@ -1725,11 +1735,14 @@ wnmp_webdav_remove_location_blocks() {
 
 wnmp_webdav_inject_location() {
   local conf="$1"
-  local tmp_block tmp_out
+  local tmp_block tmp_out site_root
 
   wnmp_webdav_conf_has_location "$conf" && return 0
 
   wnmp_webdav_remove_location_blocks "$conf" || return 1
+
+  site_root="$(wnmp_vhost_site_root_from_conf "$conf" || true)"
+  [[ -n "$site_root" ]] || site_root="/home/wwwroot/default"
 
   tmp_block="$(mktemp)"
   tmp_out="$(mktemp)"
@@ -1741,11 +1754,7 @@ wnmp_webdav_inject_location() {
 
     location ^~ /webdav/ {
         if ($server_port != 443) { return 403; }
-        set $domain $host;
-        if ($host ~* "^www\.(.+)$") {
-            set $domain $1;
-        }
-        set $site_root /home/wwwroot/$domain;
+        set $site_root __WNMP_SITE_ROOT__;
         alias $site_root/;
 
         types { }
@@ -1761,6 +1770,7 @@ wnmp_webdav_inject_location() {
 
     }
 EOF
+  sed -i "s#__WNMP_SITE_ROOT__#${site_root}#g" "$tmp_block"
 
   awk -v BLOCK="$tmp_block" '
     function brace_delta(s, t) {
@@ -2284,7 +2294,7 @@ vhost_del() {
   local webroot_base="/home/wwwroot"
   local backup_base="/home/wnmp_site_back"
 
-  local domain domain_lc bare_domain conf_path conf_domain site_root
+  local domain domain_lc bare_domain conf_path conf_domain site_root configured_root
   read -rp "请输入要删除的域名: " domain
   domain_lc="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   if [[ -z "$domain_lc" || "$domain_lc" == *..* || ! "$domain_lc" =~ ^[a-z0-9._-]+$ ]]; then
@@ -2312,6 +2322,10 @@ vhost_del() {
   fi
 
   site_root="$webroot_base/$bare_domain"
+  if [[ -n "$conf_path" ]]; then
+    configured_root="$(wnmp_vhost_site_root_from_conf "$conf_path" || true)"
+    [[ -n "$configured_root" ]] && site_root="$configured_root"
+  fi
 
   local -a ssl_paths=()
   for candidate in \
@@ -2481,6 +2495,16 @@ EOF
   local others=()
   [[ ${#DOMAINS[@]} -gt 1 ]] && others=("${DOMAINS[@]:1}")
 
+  local bare_primary="${primary#www.}"
+  local site_dir_name
+  read -rp "请输入 /home/wwwroot 下的站点目录名（可选，默认：${bare_primary}）：" site_dir_name
+  if [[ -z "$site_dir_name" ]]; then
+    site_dir_name="$bare_primary"
+  elif [[ ! "$site_dir_name" =~ ^[A-Za-z0-9._-]+$ || "$site_dir_name" == "." || "$site_dir_name" == ".." ]]; then
+    echo "[vhost][ERROR] 站点目录名格式无效。只能使用字母、数字、点、下划线或连字符，且必须是单级目录名。"
+    return 1
+  fi
+
 
   local issue_cert="n"
   local ans
@@ -2576,15 +2600,14 @@ EOF
 
 
   mkdir -p "$vhost_dir" "$webroot_base"
-  local bare_primary="${primary#www.}"
-  local site_root="${webroot_base}/${bare_primary}"
+  local site_root="${webroot_base}/${site_dir_name}"
   local conf="${vhost_dir}/${primary}.conf"
   [[ -f "$conf" ]] && cp -f "$conf" "${conf}.$(date +%Y%m%d%H%M%S).bak"
 
   local server_name_line="server_name ${server_names[*]};"
   echo "$tmpl" | sed \
     -e "s/server_name[[:space:]]\+example;/${server_name_line//\//\\/}/" \
-    -e "s#\(root[[:space:]]\+\)/home/wwwroot/default;#\1${site_root};#g" \
+    -e "s#/home/wwwroot/default#${site_root}#g" \
     > "$conf"
 
   mkdir -p "$site_root/.well-known/acme-challenge"
@@ -2739,38 +2762,13 @@ server{
     location ^~ /.well-known/ { allow all; }
     location ~ /\.(?!well-known) {deny all;}
 
-    location = /webdav {
-        return 301 /webdav/;
-    }
-
-    location ^~ /webdav/ {
-        if ($server_port != 443) { return 403; }
-        set $domain $host;
-        if ($host ~* "^www\.(.+)$") {
-            set $domain $1;
-        }
-        set $site_root /home/wwwroot/$domain;
-        alias $site_root/;
-       
-        types { }
-
-        default_type application/octet-stream;
-        auth_basic "WebDAV Authentication";
-        auth_basic_user_file /home/passwd/.$host;
-        dav_methods PUT DELETE MKCOL COPY MOVE;
-        dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
-        create_full_put_path on;
-        dav_access user:rw group:rw all:r;
-        dav_ext_lock zone=webdav_locks;
-        
-    }
     access_log off;
 }
 EOF
 )
     echo "$tmpl" | sed \
     -e "s/server_name[[:space:]]\+example;/${server_name_line//\//\\/}/" \
-    -e "s#\(root[[:space:]]\+\)/home/wwwroot/default;#\1${site_root};#g" \
+    -e "s#/home/wwwroot/default#${site_root}#g" \
     > "$conf"  
  
       update_ssl_paths_single_dir "$conf" "$ssl_dir"
