@@ -34,6 +34,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.59 2026-09-15 nginx-1.31.6 主线版已发布，修复了 使用 ngx_http_v3_module 时 出现的缓冲区溢出漏洞 (CVE-2026-90439)。
+
 v1.58 2026-09-14：创建虚拟主机时支持可选自定义 /home/wwwroot 下的站点目录名；仅在明确选择开启 WebDAV 时注入配置；修复已失效隧道IP。
 
 v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持 Cloudflare、DNSPod、ClouDNS、GoDaddy、AWS、阿里云、Linode、FreeDNS、HE.net、NameSilo、DigitalOcean 和 Name.com。

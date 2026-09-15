@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.59 2026-09-15 nginx-1.31.6 mainline versions have been released, with fixes for buffer overflow vulnerability when using ngx_http_v3_module (CVE-2026-90439).
+
 v1.58 2026-09-14: Added an optional custom web root directory name under /home/wwwroot for virtual host creation; WebDAV is injected only when explicitly enabled; fixed inactive tunnel IP addresses.
 
 v1.57 2026-09-13: Added interactive ACME DNS API provider configuration for Cloudflare, DNSPod, ClouDNS, GoDaddy, AWS, Aliyun, Linode, FreeDNS, HE.net, NameSilo, DigitalOcean, and Name.com.
