@@ -3,13 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.58
-# v1.58 2026-09-14：创建虚拟主机时支持可选自定义 /home/wwwroot 下的站点目录名；仅在明确选择开启 WebDAV 时注入配置；修复已失效隧道IP。
-# v1.57 2026-09-13：新增 ACME DNS API 交互配置菜单，支持多家 DNS 服务商及自动 dnsapi 签发。
-# v1.56 2026-09-05: 更新 nginx-1.31.5 主线版本已发布，具有控制 API、谓词位置和 ngx_http_json_module 模块。
-# v1.55 2026-09-02：更新内置 PHP 版本至 PHP 8.5.10 和 PHP 8.4.25。
-# v1.54 2026-08-27：修复精简系统写入 PATH 配置时可能导致安装退出的问题；新增 Nginx、PHP、MariaDB 独立安装，收纳组件删除/升级菜单，并支持反向代理通过 Webroot HTTP-01 申请 SSL 证书。
-# v1.52 2026-08-06：新增 SSL 证书管理和 Nginx 反向代理管理菜单，支持证书扫描/续签、单域名强制重新签发、代理修改/删除/列表、静态资源透传，以及对外域名跳转和 Cookie 域重写。
+# Version: 1.59
+# v1.59 2026-09-15 nginx-1.31.6 主线版已发布，修复了 使用 ngx_http_v3_module 时 出现的缓冲区溢出漏洞 (CVE-2026-90439)。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -73,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.58"
+  green  " [init] Version: 1.59"
 green  "============================================================"
 echo
 sleep 1
@@ -4590,7 +4585,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.5")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.6")" || return 1
   if ! wnmp_mysql_pass_configured; then
     echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
     wnmp_prompt_mysql_password || return 1
@@ -6325,7 +6320,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.5.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.6.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
