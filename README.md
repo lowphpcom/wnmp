@@ -35,6 +35,11 @@ These host-level capabilities are often uncontrollable within containers or requ
 ## Recommended Deployment Methods
 Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, or KVM virtual systems running within Proxmox (PVE) to fully leverage its performance tuning and system optimization advantages.
 
+<p style="color:#DC2626;"><strong>Important: site ownership and runtime permissions</strong></p>
+<p style="color:#DC2626;">NGINX and PHP-FPM run as the <code>www:www</code> user and group. If a site directory is owned by another user or group, PHP execution, cache, uploads, or other site operations may fail.</p>
+<p style="color:#DC2626;">After creating or moving a site, replace <code>your-site</code> with the actual directory name and run:</p>
+<pre style="color:#DC2626;">chown -R www:www /home/wwwroot/your-site</pre>
+<p style="color:#DC2626;">Confirm that the path is correct before running the command. The ownership change must be applied for the site to run normally.</p>
 
 ## Update Log
 

@@ -31,6 +31,11 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 ## 推荐部署方式
 因此，WNMP 推荐在 KVM 虚拟机、云服务器，或 Proxmox (PVE) 中开设的 KVM 虚拟系统上使用，以充分发挥其性能调优与系统优化的优势。
 
+<p style="color:#DC2626;"><strong>重要：站点目录权限说明</strong></p>
+<p style="color:#DC2626;">NGINX 和 PHP-FPM 默认以 <code>www:www</code> 用户及用户组运行。如果站点目录属于其他用户或用户组，可能导致 PHP 执行、缓存、上传或其他站点操作失败。</p>
+<p style="color:#DC2626;">创建或迁移站点后，请将下面命令中的 <code>站点目录</code> 替换为实际目录名，然后执行：</p>
+<pre style="color:#DC2626;">chown -R www:www /home/wwwroot/站点目录</pre>
+<p style="color:#DC2626;">执行前请确认路径无误。必须完成权限组切换，网站才能正常运行。</p>
 
 ## 更新记录
 
