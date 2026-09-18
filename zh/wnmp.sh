@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.59
-# v1.59 2026-09-15 nginx-1.31.6 主线版已发布，修复了 使用 ngx_http_v3_module 时 出现的缓冲区溢出漏洞 (CVE-2026-90439)。
+# Version: 1.60
+# v1.60 2026-09-18 新增 phpMyAdmin 独立安装菜单和正常安装时的选择提示。仅在安装 phpMyAdmin，或升级 Nginx 时检测到已有 phpMyAdmin 的情况下提示访问密码；MariaDB root 密码与 phpMyAdmin 访问密码分开设置。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.59"
+  green  " [init] Version: 1.60"
 green  "============================================================"
 echo
 sleep 1
@@ -78,7 +78,7 @@ usage() {
 用法:
   wnmp               # 显示交互菜单
   wnmp install       # 正常安装
-  wnmp install [nginx|php|mariadb] # 单独安装一个组件
+  wnmp install [nginx|php|mariadb|phpmyadmin] # 单独安装一个组件
   wnmp status        # 查看状态
   wnmp sshkey        # SSH 登录设置（密钥或恢复密码）
   wnmp webdav [域名] # 添加webdav账号
@@ -367,19 +367,21 @@ install_components_menu() {
   1) 仅安装 Nginx                       (wnmp install nginx)
   2) 仅安装 PHP                         (wnmp install php)
   3) 仅安装 MariaDB                     (wnmp install mariadb)
+  4) 仅安装 phpMyAdmin                  (wnmp install phpmyadmin)
   0) 返回
 INSTALL_MENU
     echo
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "请选择 [0-3]: " choice </dev/tty || true
+      read -rp "请选择 [0-4]: " choice </dev/tty || true
     else
-      read -rp "请选择 [0-3]: " choice || true
+      read -rp "请选择 [0-4]: " choice || true
     fi
     case "${choice}" in
       1) WNMP_INSTALL_COMPONENT="nginx"; return 0 ;;
       2) WNMP_INSTALL_COMPONENT="php"; return 0 ;;
       3) WNMP_INSTALL_COMPONENT="mariadb"; return 0 ;;
+      4) WNMP_INSTALL_COMPONENT="phpmyadmin"; return 0 ;;
       0) return 1 ;;
       *) echo "[setup] 无效选择: ${choice}" ;;
     esac
@@ -393,7 +395,7 @@ main_menu() {
   green "============================================================"
   cat <<'MENU'
   1) 正常安装                            (wnmp install)
-  2) 独立安装组件                        (Nginx / PHP / MariaDB)
+  2) 独立安装组件                        (Nginx / PHP / MariaDB / phpMyAdmin)
   3) 查看状态                            (wnmp status)
   4) SSH 登录设置                         (wnmp sshkey)
   5) 添加webdav账号                      (wnmp webdav)
@@ -4007,17 +4009,26 @@ sshkey() {
 
 
 MYSQL_PASS='needpasswd'
+PHPMYADMIN_PASS=''
 
 wnmp_mysql_pass_configured() {
   local pass="${MYSQL_PASS:-}"
   [ -n "$pass" ] && [ "$pass" != "needpasswd" ]
 }
 
+wnmp_phpmyadmin_installed() {
+  [ -f /home/wwwroot/default/phpmyadmin/index.php ]
+}
+
+wnmp_phpmyadmin_pass_configured() {
+  [ -n "${PHPMYADMIN_PASS:-}" ] && [ "${PHPMYADMIN_PASS}" != "needpasswd" ]
+}
+
 wnmp_prompt_mysql_password() {
   local pass1 pass2
 
   while :; do
-    read -rsp "请设置phpmyadmin 访问密码: " pass1
+    read -rsp "请设置 MariaDB root 密码: " pass1
     echo
 
     if [ -z "$pass1" ]; then
@@ -4048,10 +4059,45 @@ wnmp_prompt_mysql_password() {
   done
 }
 
+wnmp_prompt_phpmyadmin_password() {
+  local pass1 pass2
+
+  while :; do
+    read -rsp "请设置 phpmyadmin 访问密码: " pass1
+    echo
+
+    if [ -z "$pass1" ]; then
+      echo "[passwd][ERROR] 密码不能为空。"
+      continue
+    fi
+
+    if [ "$pass1" = "needpasswd" ]; then
+      echo "[passwd][ERROR] 不允许继续使用默认密码 needpasswd。"
+      continue
+    fi
+
+    if [[ "$pass1" == *"'"* ]]; then
+      echo "[passwd][ERROR] 密码暂不支持英文单引号。"
+      continue
+    fi
+
+    read -rsp "请再次输入密码确认: " pass2
+    echo
+
+    if [ "$pass1" != "$pass2" ]; then
+      echo "[passwd][ERROR] 两次输入的密码不一致。"
+      continue
+    fi
+
+    PHPMYADMIN_PASS="$pass1"
+    return 0
+  done
+}
+
 wnmp_ensure_nginx_auth_password() {
-  if ! wnmp_mysql_pass_configured; then
+  if ! wnmp_phpmyadmin_pass_configured; then
     echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
-    wnmp_prompt_mysql_password || return 1
+    wnmp_prompt_phpmyadmin_password || return 1
   fi
 
   if ! command -v htpasswd >/dev/null 2>&1; then
@@ -4060,7 +4106,7 @@ wnmp_ensure_nginx_auth_password() {
   fi
 
   mkdir -p /home/passwd
-  if ! htpasswd -bc /home/passwd/.default wnmp "$MYSQL_PASS" >/dev/null; then
+  if ! htpasswd -bc /home/passwd/.default wnmp "$PHPMYADMIN_PASS" >/dev/null; then
     echo "[nginx][ERROR] 写入 /home/passwd/.default 失败。"
     return 1
   fi
@@ -4068,6 +4114,37 @@ wnmp_ensure_nginx_auth_password() {
   chown -R www:www /home/passwd 2>/dev/null || true
   chmod 640 /home/passwd/.default 2>/dev/null || true
   echo "[nginx] 默认认证密码已设置。"
+}
+
+wnmp_install_phpmyadmin() {
+  local archive_dir="/home/wwwroot/default" extracted_dir=""
+
+  ensure_group www
+  ensure_user www www
+  mkdir -p "$archive_dir"
+
+  if [ ! -f "$WNMPDIR/phpmyadmin.zip" ]; then
+    download_with_mirrors "https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip" "$WNMPDIR/phpmyadmin.zip"
+  fi
+
+  apt install -y unzip apache2-utils
+  cd "$archive_dir"
+  rm -rf phpmyadmin phpmyadmin.zip phpMyAdmin-*
+  cp "$WNMPDIR/phpmyadmin.zip" ./phpmyadmin.zip
+  unzip -q phpmyadmin.zip -d ./
+  extracted_dir="$(find . -mindepth 1 -maxdepth 1 -type d -iname 'phpmyadmin-*' -print -quit)"
+  if [ -z "$extracted_dir" ]; then
+    echo "[phpmyadmin][ERROR] phpMyAdmin 压缩包解压失败。"
+    return 1
+  fi
+  mv "$extracted_dir" phpmyadmin
+  rm -f phpmyadmin.zip
+  chown -R www:www "$archive_dir/phpmyadmin"
+  wnmp_ensure_nginx_auth_password || return 1
+  if [ -f /usr/local/nginx/nginx.conf ]; then
+    systemctl reload nginx 2>/dev/null || true
+  fi
+  echo "[phpmyadmin] phpMyAdmin 安装完成。"
 }
 
 
@@ -4586,14 +4663,12 @@ wnmp_update_nginx() {
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
   nginx_version="$(wnmp_read_update_version "Nginx" "1.31.6")" || return 1
-  if ! wnmp_mysql_pass_configured; then
-    echo "[nginx] 未检测到有效的 phpmyadmin 访问密码，请先设置后再继续。"
-    wnmp_prompt_mysql_password || return 1
-  fi
   wnmp_install_build_deps
+  if wnmp_phpmyadmin_installed; then
+    wnmp_ensure_nginx_auth_password || return 1
+  fi
   ensure_group www
   ensure_user www www
-  wnmp_ensure_nginx_auth_password || return 1
   echo "[update] 开始升级 Nginx 到 ${nginx_version}"
   backup_nginx_config || true
 
@@ -5725,7 +5800,7 @@ for arg in "$@"; do
        fi
        case "${1:-}" in
          ""|all) WNMP_INSTALL_COMPONENT="all" ;;
-         nginx|php|mariadb) WNMP_INSTALL_COMPONENT="${1}" ;;
+         nginx|php|mariadb|phpmyadmin) WNMP_INSTALL_COMPONENT="${1}" ;;
          *)
            echo "[setup] 未知安装组件: ${1}"
            usage
@@ -5828,6 +5903,12 @@ PHP="/usr/local/php/bin/php"
 PHPIZE="/usr/local/php/bin/phpize"
 PHPCONFIG="/usr/local/php/bin/php-config"
 
+if [[ "$WNMP_INSTALL_COMPONENT" == "phpmyadmin" ]]; then
+  wnmp_prompt_phpmyadmin_password || exit 1
+  wnmp_install_phpmyadmin || exit 1
+  exit 0
+fi
+
 
 if [ -f /root/.pearrc ] || [ -f /usr/local/php/etc/pear.conf ]; then
   echo -e "${RED}检测到旧的 PEAR 配置文件，自动删除以避免 PEAR/PECL 报错...${NC}"
@@ -5868,6 +5949,7 @@ log "Current swap status:"; swapon --show || true; free -h || true
 php_version='0'
 mariadbselcect=''
 mariadb_version='0'
+phpmyadmin_install='n'
 
 # 安装范围由交互菜单或 `wnmp install <组件>` 设置。
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]]; then
@@ -5895,6 +5977,15 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "mariad
       *) echo "无效选项 $REPLY";;
     esac
   done
+fi
+
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
+  read -rp "是否安装 phpmyadmin？(y/n): " phpmyadmin_install
+elif [[ "$WNMP_INSTALL_COMPONENT" == "phpmyadmin" ]]; then
+  phpmyadmin_install='y'
+fi
+if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+  wnmp_prompt_phpmyadmin_password || exit 1
 fi
 
 if [ "$mariadb_version" != "0" ]; then
@@ -6283,7 +6374,14 @@ fi
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-    wnmp_ensure_nginx_auth_password || exit 1
+    if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]] || wnmp_phpmyadmin_installed; then
+      wnmp_ensure_nginx_auth_password || exit 1
+    else
+      mkdir -p /home/passwd
+      touch /home/passwd/.default
+      chown www:www /home/passwd/.default 2>/dev/null || true
+      chmod 640 /home/passwd/.default
+    fi
     purge_nginx || true
     cd "$WNMPDIR"
     apt-get install -y cron curl socat tar coreutils
@@ -7665,26 +7763,16 @@ SQL
 
 
   cd "$WNMPDIR"
-  
-
-
-    if [ ! -f "$WNMPDIR/phpmyadmin.zip" ]; then
-      download_with_mirrors "https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip" "$WNMPDIR/phpmyadmin.zip"
-    fi
-    cd /home/wwwroot/default
-    rm -rf phpmyadmin phpmyadmin.zip
-    cp "$WNMPDIR"/phpmyadmin.zip /home/wwwroot/default
-    apt install -y unzip
-    unzip phpmyadmin.zip -d ./
-    mv phpMyAdmin* phpmyadmin
-    rm -f phpmyadmin.zip
-    chown -R www:www /home/wwwroot
-  cd "$WNMPDIR"
   install_mroonga
 
 else
   echo "不安装mariadb"
 fi
+
+if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+  wnmp_install_phpmyadmin || exit 1
+fi
+
 apt --fix-broken install -y
 apt autoremove -y
 

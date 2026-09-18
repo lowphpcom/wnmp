@@ -34,6 +34,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.60 2026-09-18 新增 phpMyAdmin 独立安装菜单，并在正常安装时增加是否安装 phpMyAdmin 的选择。仅在安装 phpMyAdmin，或升级 Nginx 时检测到已有 phpMyAdmin 的情况下提示访问密码；MariaDB root 密码与 phpMyAdmin 访问密码分开设置。
+
 v1.59 2026-09-15 nginx-1.31.6 主线版已发布，修复了 使用 ngx_http_v3_module 时 出现的缓冲区溢出漏洞 (CVE-2026-90439)。
 
 v1.58 2026-09-14：创建虚拟主机时支持可选自定义 /home/wwwroot 下的站点目录名；仅在明确选择开启 WebDAV 时注入配置；修复已失效隧道IP。
@@ -180,13 +182,14 @@ bash wnmp.sh
 | 功能 | 命令 |
 |------|------|
 | 正常安装 | `wnmp` |
+| 独立安装 | `wnmp install nginx` / `wnmp install php` / `wnmp install mariadb` / `wnmp install phpmyadmin` |
 | 查看状态 | `wnmp status` |
 | SSH 密钥登录 | `wnmp sshkey` |
 | 添加 WebDAV 账号 | `wnmp webdav` |
 | 创建虚拟主机（含证书） | `wnmp vhost` |
 | 仅执行内核/网络调优 | `wnmp tool` # 验证指令： ulimit -n && ulimit -u && sysctl --system |
 | 重启所有服务 | `wnmp restart` |
-| 升级 Nginx | `wnmp update nginx` # 下一步输入目标 Nginx 版本号 |
+| 升级 Nginx | `wnmp update nginx` # 下一步输入目标 Nginx 版本号；已安装 phpMyAdmin 时会要求输入访问密码 |
 | 升级 PHP | `wnmp update php` # 下一步输入目标 PHP 版本号 |
 | 清理 | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` |
 | SSL续签 | `wnmp sshcheck` / `wnmp sshtest` |

@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.59
-# v1.59 2026-09-15 nginx-1.31.6 mainline versions have been released, with fixes for buffer overflow vulnerability when using ngx_http_v3_module (CVE-2026-90439).
+# Version: 1.60
+# v1.60 2026-09-18 Added standalone phpMyAdmin installation and normal-install selection. phpMyAdmin access passwords are requested only when phpMyAdmin is installed or already present during Nginx upgrades, while MariaDB root and phpMyAdmin passwords are configured separately.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.59"
+  green  " [init] Version: 1.60"
 green  "============================================================"
 echo
 sleep 1
@@ -78,7 +78,7 @@ usage() {
 Usage:
   wnmp               # Show interactive menu
   wnmp install       # Normal installation
-  wnmp install [nginx|php|mariadb] # Install one component only
+  wnmp install [nginx|php|mariadb|phpmyadmin] # Install one component only
   wnmp status        # Show service status
   wnmp sshkey        # Manage SSH key login or restore password login
   wnmp webdav [domain]        # Add a WebDAV account
@@ -503,19 +503,21 @@ install_components_menu() {
   1) Install Nginx only               (wnmp install nginx)
   2) Install PHP only                 (wnmp install php)
   3) Install MariaDB only             (wnmp install mariadb)
+  4) Install phpMyAdmin only          (wnmp install phpmyadmin)
   0) Back
 INSTALL_MENU
     echo
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-3]: " choice </dev/tty || true
+      read -rp "Please select [0-4]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-3]: " choice || true
+      read -rp "Please select [0-4]: " choice || true
     fi
     case "${choice}" in
       1) WNMP_INSTALL_COMPONENT="nginx"; return 0 ;;
       2) WNMP_INSTALL_COMPONENT="php"; return 0 ;;
       3) WNMP_INSTALL_COMPONENT="mariadb"; return 0 ;;
+      4) WNMP_INSTALL_COMPONENT="phpmyadmin"; return 0 ;;
       0) return 1 ;;
       *) echo "[setup] Invalid selection: ${choice}" ;;
     esac
@@ -529,7 +531,7 @@ main_menu() {
   green "============================================================"
   cat <<'MENU'
   1) Normal installation                 (wnmp install)
-  2) Install components separately       (Nginx / PHP / MariaDB)
+  2) Install components separately       (Nginx / PHP / MariaDB / phpMyAdmin)
   3) Show service status                 (wnmp status)
   4) Manage SSH login                    (wnmp sshkey)
   5) Add a WebDAV account                (wnmp webdav)
@@ -4160,17 +4162,26 @@ sshkey() {
 
 
 MYSQL_PASS='needpasswd'
+PHPMYADMIN_PASS=''
 
 wnmp_mysql_pass_configured() {
   local pass="${MYSQL_PASS:-}"
   [ -n "$pass" ] && [ "$pass" != "needpasswd" ]
 }
 
+wnmp_phpmyadmin_installed() {
+  [ -f /home/wwwroot/default/phpmyadmin/index.php ]
+}
+
+wnmp_phpmyadmin_pass_configured() {
+  [ -n "${PHPMYADMIN_PASS:-}" ] && [ "${PHPMYADMIN_PASS}" != "needpasswd" ]
+}
+
 wnmp_prompt_mysql_password() {
   local pass1 pass2
 
   while :; do
-    read -rsp "Please set the phpMyAdmin access password: " pass1
+    read -rsp "Please set the MariaDB root password: " pass1
     echo
 
     if [ -z "$pass1" ]; then
@@ -4201,10 +4212,45 @@ wnmp_prompt_mysql_password() {
   done
 }
 
+wnmp_prompt_phpmyadmin_password() {
+  local pass1 pass2
+
+  while :; do
+    read -rsp "Please set the phpMyAdmin access password: " pass1
+    echo
+
+    if [ -z "$pass1" ]; then
+      echo "[passwd][ERROR] Password cannot be empty."
+      continue
+    fi
+
+    if [ "$pass1" = "needpasswd" ]; then
+      echo "[passwd][ERROR] The default password 'needpasswd' is not allowed."
+      continue
+    fi
+
+    if [[ "$pass1" == *"'"* ]]; then
+      echo "[passwd][ERROR] Single quotes are not supported in this password."
+      continue
+    fi
+
+    read -rsp "Please confirm the password: " pass2
+    echo
+
+    if [ "$pass1" != "$pass2" ]; then
+      echo "[passwd][ERROR] Passwords do not match."
+      continue
+    fi
+
+    PHPMYADMIN_PASS="$pass1"
+    return 0
+  done
+}
+
 wnmp_ensure_nginx_auth_password() {
-  if ! wnmp_mysql_pass_configured; then
+  if ! wnmp_phpmyadmin_pass_configured; then
     echo "[nginx] No valid phpMyAdmin access password detected. Please set one before continuing."
-    wnmp_prompt_mysql_password || return 1
+    wnmp_prompt_phpmyadmin_password || return 1
   fi
 
   if ! command -v htpasswd >/dev/null 2>&1; then
@@ -4213,7 +4259,7 @@ wnmp_ensure_nginx_auth_password() {
   fi
 
   mkdir -p /home/passwd
-  if ! htpasswd -bc /home/passwd/.default wnmp "$MYSQL_PASS" >/dev/null; then
+  if ! htpasswd -bc /home/passwd/.default wnmp "$PHPMYADMIN_PASS" >/dev/null; then
     echo "[nginx][ERROR] Failed to write /home/passwd/.default."
     return 1
   fi
@@ -4221,6 +4267,37 @@ wnmp_ensure_nginx_auth_password() {
   chown -R www:www /home/passwd 2>/dev/null || true
   chmod 640 /home/passwd/.default 2>/dev/null || true
   echo "[nginx] Default auth password configured."
+}
+
+wnmp_install_phpmyadmin() {
+  local archive_dir="/home/wwwroot/default" extracted_dir=""
+
+  ensure_group www
+  ensure_user www www
+  mkdir -p "$archive_dir"
+
+  if [ ! -f "$WNMPDIR/phpmyadmin.zip" ]; then
+    download_with_mirrors "https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip" "$WNMPDIR/phpmyadmin.zip"
+  fi
+
+  apt install -y unzip apache2-utils
+  cd "$archive_dir"
+  rm -rf phpmyadmin phpmyadmin.zip phpMyAdmin-*
+  cp "$WNMPDIR/phpmyadmin.zip" ./phpmyadmin.zip
+  unzip -q phpmyadmin.zip -d ./
+  extracted_dir="$(find . -mindepth 1 -maxdepth 1 -type d -iname 'phpmyadmin-*' -print -quit)"
+  if [ -z "$extracted_dir" ]; then
+    echo "[phpmyadmin][ERROR] Failed to extract phpMyAdmin archive."
+    return 1
+  fi
+  mv "$extracted_dir" phpmyadmin
+  rm -f phpmyadmin.zip
+  chown -R www:www "$archive_dir/phpmyadmin"
+  wnmp_ensure_nginx_auth_password || return 1
+  if [ -f /usr/local/nginx/nginx.conf ]; then
+    systemctl reload nginx 2>/dev/null || true
+  fi
+  echo "[phpmyadmin] phpMyAdmin installation completed."
 }
 
 
@@ -4739,14 +4816,12 @@ wnmp_update_nginx() {
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
   nginx_version="$(wnmp_read_update_version "Nginx" "1.31.6")" || return 1
-  if ! wnmp_mysql_pass_configured; then
-    echo "[nginx] No valid phpMyAdmin access password detected. Please set one before continuing."
-    wnmp_prompt_mysql_password || return 1
-  fi
   wnmp_install_build_deps
+  if wnmp_phpmyadmin_installed; then
+    wnmp_ensure_nginx_auth_password || return 1
+  fi
   ensure_group www
   ensure_user www www
-  wnmp_ensure_nginx_auth_password || return 1
   echo "[update] Start updating Nginx to ${nginx_version}"
   backup_nginx_config || true
 
@@ -5878,7 +5953,7 @@ for arg in "$@"; do
        fi
        case "${1:-}" in
          ""|all) WNMP_INSTALL_COMPONENT="all" ;;
-         nginx|php|mariadb) WNMP_INSTALL_COMPONENT="${1}" ;;
+         nginx|php|mariadb|phpmyadmin) WNMP_INSTALL_COMPONENT="${1}" ;;
          *)
            echo "[setup] Unknown install component: ${1}"
            usage
@@ -5981,6 +6056,12 @@ PHP="/usr/local/php/bin/php"
 PHPIZE="/usr/local/php/bin/phpize"
 PHPCONFIG="/usr/local/php/bin/php-config"
 
+if [[ "$WNMP_INSTALL_COMPONENT" == "phpmyadmin" ]]; then
+  wnmp_prompt_phpmyadmin_password || exit 1
+  wnmp_install_phpmyadmin || exit 1
+  exit 0
+fi
+
 
 if [ -f /root/.pearrc ] || [ -f /usr/local/php/etc/pear.conf ]; then
   echo -e "${RED}Detected old PEAR configuration files; automatically deleted to avoid conflicts. PEAR/PECL Report an error...${NC}"
@@ -6021,6 +6102,7 @@ log "Current swap status:"; swapon --show || true; free -h || true
 php_version='0'
 mariadbselcect=''
 mariadb_version='0'
+phpmyadmin_install='n'
 
 # Component mode is selected by the interactive submenu or `wnmp install <component>`.
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]]; then
@@ -6048,6 +6130,15 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "mariad
       *) echo "Invalid option $REPLY";;
     esac
   done
+fi
+
+if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
+  read -rp "Install phpMyAdmin? (y/n): " phpmyadmin_install
+elif [[ "$WNMP_INSTALL_COMPONENT" == "phpmyadmin" ]]; then
+  phpmyadmin_install='y'
+fi
+if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+  wnmp_prompt_phpmyadmin_password || exit 1
 fi
 
 if [ "$mariadb_version" != "0" ]; then
@@ -6436,7 +6527,14 @@ fi
 
 case "$choosenginx" in
   y|Y|yes|YES|Yes)
-    wnmp_ensure_nginx_auth_password || exit 1
+    if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]] || wnmp_phpmyadmin_installed; then
+      wnmp_ensure_nginx_auth_password || exit 1
+    else
+      mkdir -p /home/passwd
+      touch /home/passwd/.default
+      chown www:www /home/passwd/.default 2>/dev/null || true
+      chmod 640 /home/passwd/.default
+    fi
     purge_nginx || true
     cd "$WNMPDIR"
     apt-get install -y cron curl socat tar
@@ -7816,26 +7914,16 @@ SQL
 
 
   cd "$WNMPDIR"
-  
-
-
-    if [ ! -f "$WNMPDIR/phpmyadmin.zip" ]; then
-      download_with_mirrors "https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip" "$WNMPDIR/phpmyadmin.zip"
-    fi
-    cd /home/wwwroot/default
-    rm -rf phpmyadmin phpmyadmin.zip
-    cp "$WNMPDIR"/phpmyadmin.zip /home/wwwroot/default
-    apt install -y unzip
-    unzip phpmyadmin.zip -d ./
-    mv phpMyAdmin* phpmyadmin
-    rm -f phpmyadmin.zip
-    chown -R www:www /home/wwwroot
-  cd "$WNMPDIR"
   install_mroonga
 
 else
   echo "Do not install MariaDB"
 fi
+
+if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+  wnmp_install_phpmyadmin || exit 1
+fi
+
 apt --fix-broken install -y
 apt autoremove -y
 

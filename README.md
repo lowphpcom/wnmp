@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.60 2026-09-18 Added standalone phpMyAdmin installation and a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately.
+
 v1.59 2026-09-15 nginx-1.31.6 mainline versions have been released, with fixes for buffer overflow vulnerability when using ngx_http_v3_module (CVE-2026-90439).
 
 v1.58 2026-09-14: Added an optional custom web root directory name under /home/wwwroot for virtual host creation; WebDAV is injected only when explicitly enabled; fixed inactive tunnel IP addresses.
@@ -188,13 +190,14 @@ Please execute commands using the root account on a completely clean system.
 | Purpose | Command |
 |----------|----------|
 | Normal Installation | `wnmp` |
+| Standalone Installation | `wnmp install nginx` / `wnmp install php` / `wnmp install mariadb` / `wnmp install phpmyadmin` |
 | Check Status | `wnmp status` |
 | SSH Key Login | `wnmp sshkey` |
 | Add WebDAV Account | `wnmp webdav` |
 | Create New Virtual Host (with SSL) | `wnmp vhost` |
 | Kernel/Network Optimization Only | `wnmp tool` #Verification command: ulimit -n && ulimit -u && sysctl --system | 
 | Restart All Services | `wnmp restart` |
-| Update Nginx | `wnmp update nginx` # Then enter the target Nginx version |
+| Update Nginx | `wnmp update nginx` # If phpMyAdmin is installed, enter its access password |
 | Update PHP | `wnmp update php` # Then enter the target PHP version |
 | Cleanup | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` |
 | SSL Renewal | `wnmp sshcheck` / `wnmp sshtest`  |
