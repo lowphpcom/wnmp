@@ -38,6 +38,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.61 2026-09-18 Updated the generated Nginx `block.conf` security rules. The default rules now consistently block malformed double-slash requests, sensitive files and directories, backup and database artifacts, PHPUnit and storage paths, webshell entry points, directory traversal, and encoded traversal attempts, while disabling access logs for blocked requests.
+
 v1.60 2026-09-18 Added standalone phpMyAdmin installation and deletion commands, plus a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately. The component deletion menu and `wnmp remove` also support cleaning phpMyAdmin.
 
 v1.59 2026-09-15 nginx-1.31.6 mainline versions have been released, with fixes for buffer overflow vulnerability when using ngx_http_v3_module (CVE-2026-90439).

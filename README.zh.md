@@ -34,6 +34,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.61 2026-09-18 更新生成的 Nginx `block.conf` 安全规则。默认规则现在统一拦截异常双斜杠请求、敏感文件和目录、备份及数据库文件、PHPUnit 和 storage 路径、常见 WebShell 入口、目录遍历和编码后的目录遍历请求，并关闭被拦截请求的访问日志。
+
 v1.60 2026-09-18 新增 phpMyAdmin 独立安装和删除命令，并在正常安装时增加是否安装 phpMyAdmin 的选择。仅在安装 phpMyAdmin，或升级 Nginx 时检测到已有 phpMyAdmin 的情况下提示访问密码；MariaDB root 密码与 phpMyAdmin 访问密码分开设置。组件删除菜单和 `wnmp remove` 也支持清理 phpMyAdmin。
 
 v1.59 2026-09-15 nginx-1.31.6 主线版已发布，修复了 使用 ngx_http_v3_module 时 出现的缓冲区溢出漏洞 (CVE-2026-90439)。

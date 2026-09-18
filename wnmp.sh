@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.60
-# v1.60 2026-09-18 Added standalone phpMyAdmin installation and deletion commands, plus a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately. The component deletion menu and `wnmp remove` also support cleaning phpMyAdmin.
+# Version: 1.61
+# v1.61 2026-09-18 Updated the generated Nginx block.conf security rules. The default rules now consistently block malformed double-slash requests, sensitive files and directories, backup and database artifacts, PHPUnit and storage paths, webshell entry points, directory traversal, and encoded traversal attempts, while disabling access logs for blocked requests.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.60"
+  green  " [init] Version: 1.61"
 green  "============================================================"
 echo
 sleep 1
@@ -6698,33 +6698,24 @@ EOF
 
 cat <<'EOF' >  /usr/local/nginx/block.conf
 if ($request_uri ~ "^//+") { return 444; }
-location ~* /wp-(admin|includes|content)/ { access_log off; return 444; }
-location ~* /(wp-login\.php|xmlrpc\.php|wlwmanifest\.xml)$ { access_log off; return 444; }
-
-location ~* ^/\.(git|svn|hg|bzr)(/|$) {access_log off; return 444; }
-location ~* ^/\.DS_Store$ {access_log off; return 444; }
-location ~* ^/\.(env|env\..*|htaccess|htpasswd)$ {access_log off; return 444; }
-location ~* ^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml)$ {access_log off; return 444; }
-
-location ~* \.(bak|old|orig|save|swp|swo|tmp|temp)$ {access_log off; return 444; }
-location ~* \.(sql|sqlite|dump)$ {access_log off; return 444; }
+location ~* /(xmlrpc.php|wlwmanifest.xml)$ { access_log off; return 444; }
+location ~* ^/.(git|svn|hg|bzr)(/|$) {access_log off; return 444; }
+location ~* ^/.DS_Store$ {access_log off; return 444; }
+location ~* ^/.(env|env..*|htaccess|htpasswd)$ {access_log off; return 444; }
+location ~* ^/(composer.(json|lock)|package(-lock)?.json|yarn.lock|pnpm-lock.yaml)$ {access_log off; return 444; }
+location ~* .(bak|old|orig|save|swp|swo|tmp|temp)$ {access_log off; return 444; }
+location ~* .(sql|sqlite|dump)$ {access_log off; return 444; }
 location ~* ^/(backup|backups|bak|dump|dumps|sql|db|database)(/|$) {access_log off; return 444; }
-
-location ~* ^/(phpinfo\.php|info\.php|test\.php|_debug|debug)(/|$) {access_log off; return 444; }
-location ~* ^/(install|installer|setup|configure)(/|$) {access_log off; return 444; }
-
 location ~* ^/vendor/phpunit/ {access_log off; return 444; }
-location ~* ^/phpunit(\.xml|\.xml\.dist)?$ {access_log off; return 444; }
+location ~* ^/phpunit(.xml|.xml.dist)?$ {access_log off; return 444; }
 location ~* ^/storage/ {access_log off; return 444; }
 location ~* ^/public/storage/ {access_log off; return 444; }
 location ~* ^/runtime/ {access_log off; return 444; }
 location ~* ^/bootstrap/cache/ {access_log off; return 444; }
-
-location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57)\.php$ {access_log off; return 444; }
+location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57).php$ {access_log off; return 444; }
 location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) {access_log off; return 444; }
-location ~* ^/(crossdomain\.xml|clientaccesspolicy\.xml)$ {access_log off; return 444; }
-
-location ~* \.\./ { access_log off; return 444; }
+location ~* ^/(crossdomain.xml|clientaccesspolicy.xml)$ {access_log off; return 444; }
+location ~* ../ { access_log off; return 444; }
 location ~* %2e%2e%2f { access_log off; return 444; }
 EOF
 
