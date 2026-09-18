@@ -4,7 +4,7 @@
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
 # Version: 1.60
-# v1.60 2026-09-18 Added standalone phpMyAdmin installation and normal-install selection. phpMyAdmin access passwords are requested only when phpMyAdmin is installed or already present during Nginx upgrades, while MariaDB root and phpMyAdmin passwords are configured separately.
+# v1.60 2026-09-18 Added standalone phpMyAdmin installation and deletion commands, plus a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately. The component deletion menu and `wnmp remove` also support cleaning phpMyAdmin.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -97,6 +97,7 @@ Usage:
   wnmp renginx       # Uninstall Nginx
   wnmp rephp         # Uninstall PHP
   wnmp remariadb     # Uninstall MariaDB
+  wnmp rephpmyadmin  # Uninstall phpMyAdmin
   wnmp fixsshd       # Self-check and attempt to fix sshd
   wnmp ssl [rewrite|check|run|force [domain]] # SSL certificate management
   wnmp dns [provider] # Configure ACME DNS API credentials (cf, dp, cx, gd, aws, ali, linode, freedns, he, namesilo, dgon, namecom)
@@ -446,20 +447,22 @@ delete_components_menu() {
   2) Clean Nginx only                 (wnmp renginx)
   3) Clean PHP only                   (wnmp rephp)
   4) Clean MariaDB only               (wnmp remariadb)
+  5) Clean phpMyAdmin only            (wnmp rephpmyadmin)
   0) Back
 DELETE_MENU
     echo
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-4]: " choice </dev/tty || true
+      read -rp "Please select [0-5]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-4]: " choice || true
+      read -rp "Please select [0-5]: " choice || true
     fi
     case "${choice}" in
       1) remove ;;
       2) renginx ;;
       3) rephp ;;
       4) remariadb ;;
+      5) rephpmyadmin ;;
       0) return 0 ;;
       *) echo "[setup] Invalid selection: ${choice}" ;;
     esac
@@ -539,7 +542,7 @@ main_menu() {
   7) Delete a virtual host               (wnmp vhost del)
   8) Kernel / network tuning only        (wnmp tool)
   9) Restart services                    (wnmp restart)
- 10) Delete components                   (wnmp remove / renginx / rephp / remariadb)
+ 10) Delete components                   (wnmp remove / renginx / rephp / remariadb / rephpmyadmin)
  11) Upgrade components                 (wnmp update nginx / wnmp update php)
  12) Self-check and attempt to fix sshd  (wnmp fixsshd)
  13) SSL certificate management          (wnmp ssl)
@@ -3649,6 +3652,14 @@ purge_php() {
   apt autoremove -y 2>/dev/null || true
 }
 
+purge_phpmyadmin() {
+  echo "Purging phpMyAdmin (if any)..."
+  rm -rf /home/wwwroot/default/phpmyadmin
+  rm -f /home/passwd/.default
+  systemctl reload nginx 2>/dev/null || true
+  echo "phpMyAdmin cleaned up"
+}
+
 ensure_mariadb_debian_compat_config() {
   mkdir -p /etc/mysql/conf.d
   mkdir -p /etc/mysql/mariadb.conf.d
@@ -3764,7 +3775,8 @@ remove(){
   purge_nginx || true
   purge_php || true
   purge_mariadb || true
-  echo "nginx,php,mariadb Everything has been completely cleaned up."
+  purge_phpmyadmin || true
+  echo "nginx,php,mariadb,phpMyAdmin Everything has been completely cleaned up."
   exit 0
 
 }
@@ -3785,6 +3797,13 @@ rephp(){
 remariadb(){
   purge_mariadb || true
   echo "mariadb Cleaned up"
+  exit 0
+
+}
+
+rephpmyadmin(){
+  purge_phpmyadmin || true
+  echo "phpMyAdmin Cleaned up"
   exit 0
 
 }
@@ -5947,7 +5966,7 @@ for arg in "$@"; do
      install)
        shift
        if [[ "$#" -gt 1 ]]; then
-         echo "[setup] install accepts at most one component: nginx, php, or mariadb."
+         echo "[setup] install accepts at most one component: nginx, php, mariadb, or phpmyadmin."
          usage
          exit 1
        fi
@@ -6001,6 +6020,7 @@ for arg in "$@"; do
      renginx) renginx; exit 0 ;;
      rephp) rephp; exit 0 ;;
      remariadb) remariadb; exit 0 ;;
+     rephpmyadmin) rephpmyadmin; exit 0 ;;
      fixsshd) fixsshd; exit 0 ;;
      devssl) devssl; exit 0 ;;
      sslcheck) wnmp_sslcheck; exit 0 ;;

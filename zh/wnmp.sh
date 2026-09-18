@@ -4,7 +4,7 @@
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
 # Version: 1.60
-# v1.60 2026-09-18 新增 phpMyAdmin 独立安装菜单和正常安装时的选择提示。仅在安装 phpMyAdmin，或升级 Nginx 时检测到已有 phpMyAdmin 的情况下提示访问密码；MariaDB root 密码与 phpMyAdmin 访问密码分开设置。
+# v1.60 2026-09-18 新增 phpMyAdmin 独立安装和删除命令，并在正常安装时增加是否安装 phpMyAdmin 的选择。仅在安装 phpMyAdmin，或升级 Nginx 时检测到已有 phpMyAdmin 的情况下提示访问密码；MariaDB root 密码与 phpMyAdmin 访问密码分开设置。组件删除菜单和 `wnmp remove` 也支持清理 phpMyAdmin。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -97,6 +97,7 @@ usage() {
   wnmp renginx       # 卸载nginx
   wnmp rephp         # 卸载php
   wnmp remariadb     # 卸载mariadb
+  wnmp rephpmyadmin  # 卸载phpmyadmin
   wnmp fixsshd       # 自检sshd尝试修复
   wnmp ssl [rewrite|check|run|force [domain]] # SSL 证书管理
   wnmp dns [provider] # 配置 ACME DNS API（cf, dp, cx, gd, aws, ali, linode, freedns, he, namesilo, dgon, namecom）
@@ -310,20 +311,22 @@ delete_components_menu() {
   2) 仅清理 Nginx                      (wnmp renginx)
   3) 仅清理 PHP                        (wnmp rephp)
   4) 仅清理 MariaDB                    (wnmp remariadb)
+  5) 仅清理 phpMyAdmin                 (wnmp rephpmyadmin)
   0) 返回
 DELETE_MENU
     echo
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "请选择 [0-4]: " choice </dev/tty || true
+      read -rp "请选择 [0-5]: " choice </dev/tty || true
     else
-      read -rp "请选择 [0-4]: " choice || true
+      read -rp "请选择 [0-5]: " choice || true
     fi
     case "${choice}" in
       1) remove ;;
       2) renginx ;;
       3) rephp ;;
       4) remariadb ;;
+      5) rephpmyadmin ;;
       0) return 0 ;;
       *) echo "[setup] 无效选择: ${choice}" ;;
     esac
@@ -403,7 +406,7 @@ main_menu() {
   7) 删除虚拟主机                        (wnmp vhost del)
   8) 仅做内核/网络调优                   (wnmp tool)
   9) 重启服务                            (wnmp restart)
- 10) 删除组件                            (wnmp remove / renginx / rephp / remariadb)
+ 10) 删除组件                            (wnmp remove / renginx / rephp / remariadb / rephpmyadmin)
  11) 升级组件                            (wnmp update nginx / update php)
  12) 自检sshd尝试修复                    (wnmp fixsshd)
  13) SSL 证书管理                        (wnmp ssl)
@@ -3496,6 +3499,14 @@ purge_php() {
   apt autoremove -y 2>/dev/null || true
 }
 
+purge_phpmyadmin() {
+  echo "正在清理 phpMyAdmin（如果存在）..."
+  rm -rf /home/wwwroot/default/phpmyadmin
+  rm -f /home/passwd/.default
+  systemctl reload nginx 2>/dev/null || true
+  echo "phpMyAdmin 已清理"
+}
+
 ensure_mariadb_debian_compat_config() {
   mkdir -p /etc/mysql/conf.d
   mkdir -p /etc/mysql/mariadb.conf.d
@@ -3611,7 +3622,8 @@ remove(){
   purge_nginx || true
   purge_php || true
   purge_mariadb || true
-  echo "nginx,php,mariadb已全部清理干净"
+  purge_phpmyadmin || true
+  echo "nginx、php、mariadb、phpMyAdmin 已全部清理干净"
   exit 0
 
 }
@@ -3632,6 +3644,13 @@ rephp(){
 remariadb(){
   purge_mariadb || true
   echo "mariadb已清理干净"
+  exit 0
+
+}
+
+rephpmyadmin(){
+  purge_phpmyadmin || true
+  echo "phpMyAdmin 已清理干净"
   exit 0
 
 }
@@ -5794,7 +5813,7 @@ for arg in "$@"; do
      install)
        shift
        if [[ "$#" -gt 1 ]]; then
-         echo "[setup] install 最多只能指定一个组件：nginx、php 或 mariadb。"
+         echo "[setup] install 最多只能指定一个组件：nginx、php、mariadb 或 phpmyadmin。"
          usage
          exit 1
        fi
@@ -5848,6 +5867,7 @@ for arg in "$@"; do
      renginx) renginx; exit 0 ;;
      rephp) rephp; exit 0 ;;
      remariadb) remariadb; exit 0 ;;
+     rephpmyadmin) rephpmyadmin; exit 0 ;;
      fixsshd) fixsshd; exit 0 ;;
      devssl) devssl; exit 0 ;;
      sslcheck) wnmp_sslcheck; exit 0 ;;

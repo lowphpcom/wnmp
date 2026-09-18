@@ -38,7 +38,7 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
-v1.60 2026-09-18 Added standalone phpMyAdmin installation and a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately.
+v1.60 2026-09-18 Added standalone phpMyAdmin installation and deletion commands, plus a phpMyAdmin choice during normal installation. The phpMyAdmin access password is requested only when phpMyAdmin is installed or already present during an Nginx upgrade; MariaDB root and phpMyAdmin passwords are configured separately. The component deletion menu and `wnmp remove` also support cleaning phpMyAdmin.
 
 v1.59 2026-09-15 nginx-1.31.6 mainline versions have been released, with fixes for buffer overflow vulnerability when using ngx_http_v3_module (CVE-2026-90439).
 
@@ -199,7 +199,7 @@ Please execute commands using the root account on a completely clean system.
 | Restart All Services | `wnmp restart` |
 | Update Nginx | `wnmp update nginx` # If phpMyAdmin is installed, enter its access password |
 | Update PHP | `wnmp update php` # Then enter the target PHP version |
-| Cleanup | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` |
+| Cleanup | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` / `wnmp rephpmyadmin` |
 | SSL Renewal | `wnmp sshcheck` / `wnmp sshtest`  |
 ---
 
