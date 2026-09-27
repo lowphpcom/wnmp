@@ -3,9 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.63
-# v1.63 2026-09-22 新增时间管理菜单，提供系统时间同步和时区设置。时间同步会安装并启用 systemd-timesyncd 后开启 NTP；时区设置默认 Asia/Shanghai，并支持输入其他 IANA 时区。
-# v1.61 2026-09-18 更新生成的 Nginx block.conf 安全规则。默认规则现在统一拦截异常双斜杠请求、敏感文件和目录、备份及数据库文件、PHPUnit 和 storage 路径、常见 WebShell 入口、目录遍历和编码后的目录遍历请求，并关闭被拦截请求的访问日志。
+# Version: 1.64
+# v1.64 2026-09-27  PHP版本更新8.5.11,8.4.26,8.3.35,8.2.34。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -69,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.63"
+  green  " [init] Version: 1.64"
 green  "============================================================"
 echo
 sleep 1
@@ -6188,10 +6187,10 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
   select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     case $phpselcect in
       "不安装php") php_version='0'; break ;;
-      "php8.2") php_version='8.2.33'; break ;;
-      "php8.3") php_version='8.3.33'; break ;;
-      "php8.4") php_version='8.4.25'; break ;;
-      "php8.5") php_version='8.5.10'; break ;;
+      "php8.2") php_version='8.2.34'; break ;;
+      "php8.3") php_version='8.3.35'; break ;;
+      "php8.4") php_version='8.4.26'; break ;;
+      "php8.5") php_version='8.5.11'; break ;;
       *) echo "无效选项 $REPLY";;
     esac
   done
@@ -6773,7 +6772,6 @@ location ~* ^/bootstrap/cache/ {access_log off; return 444; }
 location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57).php$ {access_log off; return 444; }
 location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) {access_log off; return 444; }
 location ~* ^/(crossdomain.xml|clientaccesspolicy.xml)$ {access_log off; return 444; }
-location ~* ../ { access_log off; return 444; }
 location ~* %2e%2e%2f { access_log off; return 444; }
 EOF
 

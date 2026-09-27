@@ -3,9 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.63
-# v1.63 2026-09-22 Added a Time Management menu with system time synchronization and timezone settings. Time sync installs and enables systemd-timesyncd, then enables NTP; timezone settings default to UTC and accept custom IANA timezone values.
-# v1.61 2026-09-18 Updated the generated Nginx block.conf security rules. The default rules now consistently block malformed double-slash requests, sensitive files and directories, backup and database artifacts, PHPUnit and storage paths, webshell entry points, directory traversal, and encoded traversal attempts, while disabling access logs for blocked requests.
+# Version: 1.64
+# v1.64 2026-09-27 Updated PHP versions to 8.5.11,8.4.26,8.3.35,8.2.34.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -69,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.63"
+  green  " [init] Version: 1.64"
 green  "============================================================"
 echo
 sleep 1
@@ -6347,10 +6346,10 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
   select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     case $phpselcect in
       "Do not install PHP") php_version='0'; break ;;
-      "php8.2") php_version='8.2.33'; break ;;
-      "php8.3") php_version='8.3.33'; break ;;
-      "php8.4") php_version='8.4.25'; break ;;
-      "php8.5") php_version='8.5.10'; break ;;
+      "php8.2") php_version='8.2.34'; break ;;
+      "php8.3") php_version='8.3.35'; break ;;
+      "php8.4") php_version='8.4.26'; break ;;
+      "php8.5") php_version='8.5.11'; break ;;
       *) echo "Invalid option $REPLY";;
     esac
   done
@@ -6932,7 +6931,6 @@ location ~* ^/bootstrap/cache/ {access_log off; return 444; }
 location ~* ^/(shell|cmd|webshell|wso|b374k|c99|r57).php$ {access_log off; return 444; }
 location ~* ^/(tinyfilemanager|filemanager|elfinder)(/|$) {access_log off; return 444; }
 location ~* ^/(crossdomain.xml|clientaccesspolicy.xml)$ {access_log off; return 444; }
-location ~* ../ { access_log off; return 444; }
 location ~* %2e%2e%2f { access_log off; return 444; }
 EOF
 
