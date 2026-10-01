@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.64
-# v1.64 2026-09-27 Updated PHP versions to 8.5.11,8.4.26,8.3.35,8.2.34.
+# Version: 1.65
+# v1.65 2026-10-01 Fixed the missing $dl_site_root map when public directory mode is enabled. New installations include it in both Nginx templates, and existing installations add it automatically and idempotently.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.64"
+  green  " [init] Version: 1.65"
 green  "============================================================"
 echo
 sleep 1
@@ -2476,7 +2476,46 @@ download() {
     mv "$_tmp" "$_conf"
   }
 
+  ensure_download_root_map() {
+    local _nginx_conf="/usr/local/nginx/nginx.conf" _tmp
+    [[ -f "$_nginx_conf" ]] || {
+      echo "[download][ERROR] Nginx main configuration not found: $_nginx_conf"
+      return 1
+    }
+    grep -qE '^[[:space:]]*map[[:space:]]+\$host[[:space:]]+\$dl_site_root[[:space:]]*\{' "$_nginx_conf" && return 0
+
+    _tmp="$(mktemp)"
+    if ! awk '
+      BEGIN { depth=0; inserted=0 }
+      {
+        line=$0
+        if (!inserted && depth == 0 && line ~ /^[[:space:]]*http[[:space:]]*\{/) {
+          print line
+          print "    map $host $dl_site_root {"
+          print "        default                 /home/wwwroot/$host;"
+          print "        ~^www\\.(?<d>.+)$        /home/wwwroot/$d;"
+          print "    }"
+          inserted=1
+          open_cnt=gsub(/{/,"&",line); close_cnt=gsub(/}/,"&",line)
+          depth += open_cnt - close_cnt
+          next
+        }
+        print line
+        open_cnt=gsub(/{/,"&",line); close_cnt=gsub(/}/,"&",line)
+        depth += open_cnt - close_cnt
+      }
+      END { if (!inserted) exit 1 }
+    ' "$_nginx_conf" > "$_tmp"; then
+      rm -f "$_tmp"
+      echo "[download][ERROR] Nginx main configuration has no http {} block; cannot inject dl_site_root."
+      return 1
+    fi
+    mv "$_tmp" "$_nginx_conf"
+    echo "[download] Ensured nginx.conf contains the dl_site_root map."
+  }
+
   if [[ "$enable_public" -eq 1 ]]; then
+    ensure_download_root_map
     sed -i '/^[[:space:]]*include[[:space:]]\+enable-php\.conf;[[:space:]]*$/d' "$conf_path"
     echo "[download] Removed include enable-php.conf;(PHP execution prohibited)"
 
@@ -7591,6 +7630,10 @@ events {
 }
 
 http {
+    map $host $dl_site_root {
+        default                 /home/wwwroot/$host;
+        ~^www\.(?<d>.+)$        /home/wwwroot/$d;
+    }
     include       mime.types;
     default_type  application/octet-stream;
     dav_ext_lock_zone zone=webdav_locks:10m;

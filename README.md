@@ -43,6 +43,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.65 2026-10-01 Fixed an Nginx configuration test failure when enabling a public directory because the main configuration lacked the `$dl_site_root` map. New installations now include the map in both LAN and public Nginx templates, while existing installations add it automatically and idempotently when public directory mode is enabled.
+
 v1.64 2026-09-27 Updated PHP versions to 8.5.11,8.4.26,8.3.35,8.2.34.
 
 v1.63 2026-09-22 Added a Time Management menu with system time synchronization and timezone settings. Time sync installs and enables `systemd-timesyncd`, then enables NTP; timezone settings default to `UTC` and accept custom IANA timezone values.
