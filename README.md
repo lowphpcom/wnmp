@@ -43,6 +43,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.66 2026-10-14 nginx-1.31.7 mainline versions have been released, with fixes for buffer overflow vulnerability when using alias with rewrite (CVE-2026-15176), buffer overflow vulnerability when evaluating string expressions with variables (CVE-2026-93479), request body injection vulnerability in HTTP/3 (CVE-2026-95101), session forgery vulnerability when using TLS session ticket key rotation (CVE-2026-97629), and use-after-free vulnerability when using ngx_http_ssi_module with AIO (CVE-2026-97205).
+
 v1.65 2026-10-01 Fixed an Nginx configuration test failure when enabling a public directory because the main configuration lacked the `$dl_site_root` map. New installations now include the map in both LAN and public Nginx templates, while existing installations add it automatically and idempotently when public directory mode is enabled.
 
 v1.64 2026-09-27 Updated PHP versions to 8.5.11,8.4.26,8.3.35,8.2.34.

@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.65
-# v1.65 2026-10-01 Fixed the missing $dl_site_root map when public directory mode is enabled. New installations include it in both Nginx templates, and existing installations add it automatically and idempotently.
+# Version: 1.66
+# v1.66 2026-10-14 nginx-1.31.7 mainline versions have been released, with fixes for buffer overflow vulnerability when using alias with rewrite (CVE-2026-15176), buffer overflow vulnerability when evaluating string expressions with variables (CVE-2026-93479), request body injection vulnerability in HTTP/3 (CVE-2026-95101), session forgery vulnerability when using TLS session ticket key rotation (CVE-2026-97629), and use-after-free vulnerability when using ngx_http_ssi_module with AIO (CVE-2026-97205).
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.65"
+  green  " [init] Version: 1.66"
 green  "============================================================"
 echo
 sleep 1
@@ -5030,7 +5030,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.6")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.7")" || return 1
   local nginx_tar="nginx-${nginx_version}.tar.gz"
   local nginx_dir="nginx-${nginx_version}"
   local nginx_url="https://nginx.org/download/${nginx_tar}"
@@ -6846,7 +6846,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.6.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.7.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx

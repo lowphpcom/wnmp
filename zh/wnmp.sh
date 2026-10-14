@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.65
-# v1.65 2026-10-01 修复开启站点公开目录时缺少 $dl_site_root 映射的问题。新安装会在内外网 Nginx 模板中写入映射，旧安装启用公开目录时也会自动、幂等补齐。
+# Version: 1.66
+# v1.66 2026-10-14 nginx-1.31.7 主线版本已发布， 修复了使用别名重写时的缓冲区溢出漏洞（CVE-2026-15176），以及变量字符串表达式评估时缓冲区溢出漏洞 （CVE-2026-93479）、HTTP/3 中的请求体注入漏洞（CVE-2026-95101）、使用 TLS 会话工单密钥轮换时的会话伪造漏洞（CVE-2026-97629），以及使用ngx_http_ssi_module配合 AIO 时的“释放后使用”漏洞（CVE-2026-97205）。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.65"
+  green  " [init] Version: 1.66"
 green  "============================================================"
 echo
 sleep 1
@@ -4875,7 +4875,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] 当前 Nginx 版本：${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.6")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.7")" || return 1
   local nginx_tar="nginx-${nginx_version}.tar.gz"
   local nginx_dir="nginx-${nginx_version}"
   local nginx_url="https://nginx.org/download/${nginx_tar}"
@@ -6687,7 +6687,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.6.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.7.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
