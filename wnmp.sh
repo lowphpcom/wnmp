@@ -3634,8 +3634,8 @@ backup_php_config() {
   local ts backup_dir
   ts="$(date +%Y%m%d_%H%M%S)"
   backup_dir="/home/wnmp-backup/php-${ts}"
-  mkdir -p "$backup_dir"
-  cp -a "$php_ini" "$backup_dir/php.ini"
+  mkdir -p "$backup_dir" || return 1
+  cp -a "$php_ini" "$backup_dir/php.ini" || return 1
 
   echo "[backup] PHP config backup saved: ${backup_dir}/php.ini"
   WNMP_LAST_PHP_INI_BACKUP="${backup_dir}/php.ini"
@@ -3691,10 +3691,36 @@ wnmp_restore_php_ini_backup() {
   local php_ini_backup="$1"
   local label="${2:-[restore]}"
 
-  [ -n "$php_ini_backup" ] && [ -f "$php_ini_backup" ] || return 0
+  [ -n "$php_ini_backup" ] || return 0
+  [ -f "$php_ini_backup" ] || return 1
 
-  cp -a "$php_ini_backup" /usr/local/php/etc/php.ini
+  cp -a "$php_ini_backup" /usr/local/php/etc/php.ini || return 1
   echo "${label} Restored previous php.ini: ${php_ini_backup}"
+}
+
+wnmp_secure_php_sessions() {
+  local php_ini="${1:-/usr/local/php/etc/php.ini}"
+  local tmp upload_progress="" strict_mode=""
+
+  [ -f "$php_ini" ] || return 1
+  # Preserve existing settings; add only missing, uncommented directives.
+  if ! grep -qE '^[[:space:]]*session\.upload_progress\.enabled[[:space:]]*=' "$php_ini"; then
+    upload_progress="session.upload_progress.enabled = 0"
+  fi
+  if ! grep -qE '^[[:space:]]*session\.use_strict_mode[[:space:]]*=' "$php_ini"; then
+    strict_mode="session.use_strict_mode = 1"
+  fi
+  [ -n "${upload_progress}${strict_mode}" ] || return 0
+
+  tmp="$(mktemp "${php_ini}.tmp.XXXXXX")" || return 1
+  if ! cp -p "$php_ini" "$tmp" || ! {
+    if [ -n "$upload_progress" ]; then printf '%s\n' "$upload_progress"; fi
+    if [ -n "$strict_mode" ]; then printf '%s\n' "$strict_mode"; fi
+    cat "$php_ini"
+  } > "$tmp" || ! mv -f "$tmp" "$php_ini"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 purge_nginx() {
@@ -5138,11 +5164,23 @@ wnmp_update_nginx() {
 }
 
 wnmp_update_php() {
-  local php_version old_php_version
+  local php_version old_php_version default_php_version
+  local WNMP_LAST_PHP_INI_BACKUP=""
   old_php_version="$(wnmp_current_php_version)"
   echo "[update] Current PHP version: ${old_php_version}"
 
-  php_version="$(wnmp_read_update_version "PHP" "8.4.27")" || return 1
+  case "$old_php_version" in
+    8.5.*) default_php_version="8.5.12" ;;
+    8.4.*) default_php_version="8.4.27" ;;
+    8.3.*) default_php_version="8.3.36" ;;
+    8.2.*) default_php_version="8.2.35" ;;
+    *)
+      echo "[update][ERROR] Cannot select a default update for PHP ${old_php_version}; an installed PHP 8.2, 8.3, 8.4, or 8.5 is required."
+      return 1
+      ;;
+  esac
+
+  php_version="$(wnmp_read_update_version "PHP" "$default_php_version")" || return 1
 
   local php_tar="php-${php_version}.tar.gz"
   local php_dir="php-${php_version}"
@@ -5155,7 +5193,10 @@ wnmp_update_php() {
   fi
 
   echo "[update] Start updating PHP to ${php_version}"
-  backup_php_config || true
+  if ! backup_php_config; then
+    echo "[update][ERROR] Failed to back up php.ini. The old PHP installation was not removed."
+    return 1
+  fi
   if ! wnmp_install_build_deps; then
     echo "[update][ERROR] Failed to install PHP build dependencies. The old version was not removed."
     return 1
@@ -5338,7 +5379,14 @@ opcache.enable_cli=1
 EOF
   fi
 
-  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[update]"
+  if ! wnmp_restore_php_ini_backup "$WNMP_LAST_PHP_INI_BACKUP" "[update]"; then
+    echo "[update][ERROR] Failed to restore php.ini from the configuration backup."
+    return 1
+  fi
+  if ! wnmp_secure_php_sessions; then
+    echo "[update][ERROR] Failed to apply PHP session security settings."
+    return 1
+  fi
 
   systemctl enable php-fpm
   systemctl start php-fpm
@@ -6638,6 +6686,7 @@ mysqli.default_socket = /run/mariadb/mariadb.sock
 session.save_handler = files
 session.save_path = "/tmp"
 session.use_strict_mode = 1
+session.upload_progress.enabled = 0
 session.use_only_cookies = 1
 session.cookie_httponly = 1
 session.cookie_secure = 1
@@ -6719,6 +6768,7 @@ mysqli.default_socket = /run/mariadb/mariadb.sock
 session.save_handler = files
 session.save_path = "/tmp"
 session.use_strict_mode = 1
+session.upload_progress.enabled = 0
 session.use_only_cookies = 1
 session.cookie_httponly = 1
 session.cookie_secure = 1
@@ -6754,7 +6804,11 @@ apc.enable_cli=1
 EOF
 fi
 
-  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[install]"
+  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[install]" || exit 1
+  if ! wnmp_secure_php_sessions; then
+    echo "[install][ERROR] Failed to apply PHP session security settings."
+    exit 1
+  fi
 
   systemctl enable php-fpm
   systemctl start php-fpm

@@ -3481,8 +3481,8 @@ backup_php_config() {
   local ts backup_dir
   ts="$(date +%Y%m%d_%H%M%S)"
   backup_dir="/home/wnmp-backup/php-${ts}"
-  mkdir -p "$backup_dir"
-  cp -a "$php_ini" "$backup_dir/php.ini"
+  mkdir -p "$backup_dir" || return 1
+  cp -a "$php_ini" "$backup_dir/php.ini" || return 1
 
   echo "[backup] PHP 配置备份已保存：${backup_dir}/php.ini"
   WNMP_LAST_PHP_INI_BACKUP="${backup_dir}/php.ini"
@@ -3538,10 +3538,36 @@ wnmp_restore_php_ini_backup() {
   local php_ini_backup="$1"
   local label="${2:-[restore]}"
 
-  [ -n "$php_ini_backup" ] && [ -f "$php_ini_backup" ] || return 0
+  [ -n "$php_ini_backup" ] || return 0
+  [ -f "$php_ini_backup" ] || return 1
 
-  cp -a "$php_ini_backup" /usr/local/php/etc/php.ini
+  cp -a "$php_ini_backup" /usr/local/php/etc/php.ini || return 1
   echo "${label} 已恢复原 php.ini：${php_ini_backup}"
+}
+
+wnmp_secure_php_sessions() {
+  local php_ini="${1:-/usr/local/php/etc/php.ini}"
+  local tmp upload_progress="" strict_mode=""
+
+  [ -f "$php_ini" ] || return 1
+  # 保留已有参数及其值，只补充缺失的有效配置项。
+  if ! grep -qE '^[[:space:]]*session\.upload_progress\.enabled[[:space:]]*=' "$php_ini"; then
+    upload_progress="session.upload_progress.enabled = 0"
+  fi
+  if ! grep -qE '^[[:space:]]*session\.use_strict_mode[[:space:]]*=' "$php_ini"; then
+    strict_mode="session.use_strict_mode = 1"
+  fi
+  [ -n "${upload_progress}${strict_mode}" ] || return 0
+
+  tmp="$(mktemp "${php_ini}.tmp.XXXXXX")" || return 1
+  if ! cp -p "$php_ini" "$tmp" || ! {
+    if [ -n "$upload_progress" ]; then printf '%s\n' "$upload_progress"; fi
+    if [ -n "$strict_mode" ]; then printf '%s\n' "$strict_mode"; fi
+    cat "$php_ini"
+  } > "$tmp" || ! mv -f "$tmp" "$php_ini"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 purge_nginx() {
@@ -4981,11 +5007,23 @@ wnmp_update_nginx() {
 }
 
 wnmp_update_php() {
-  local php_version old_php_version
+  local php_version old_php_version default_php_version
+  local WNMP_LAST_PHP_INI_BACKUP=""
   old_php_version="$(wnmp_current_php_version)"
   echo "[update] 当前 PHP 版本：${old_php_version}"
 
-  php_version="$(wnmp_read_update_version "PHP" "8.4.27")" || return 1
+  case "$old_php_version" in
+    8.5.*) default_php_version="8.5.12" ;;
+    8.4.*) default_php_version="8.4.27" ;;
+    8.3.*) default_php_version="8.3.36" ;;
+    8.2.*) default_php_version="8.2.35" ;;
+    *)
+      echo "[update][ERROR] 无法为 PHP ${old_php_version} 选择默认升级版本；需要已安装 PHP 8.2、8.3、8.4 或 8.5。"
+      return 1
+      ;;
+  esac
+
+  php_version="$(wnmp_read_update_version "PHP" "$default_php_version")" || return 1
 
   local php_tar="php-${php_version}.tar.gz"
   local php_dir="php-${php_version}"
@@ -4996,7 +5034,10 @@ wnmp_update_php() {
   fi
 
   echo "[update] 开始升级 PHP 到 ${php_version}"
-  backup_php_config || true
+  if ! backup_php_config; then
+    echo "[update][ERROR] php.ini 备份失败，旧 PHP 安装未删除。"
+    return 1
+  fi
   if ! wnmp_install_build_deps; then
     echo "[update][ERROR] PHP 构建依赖安装失败，旧版本未删除。"
     return 1
@@ -5179,7 +5220,14 @@ opcache.enable_cli=1
 EOF
   fi
 
-  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[update]"
+  if ! wnmp_restore_php_ini_backup "$WNMP_LAST_PHP_INI_BACKUP" "[update]"; then
+    echo "[update][ERROR] 无法从配置备份恢复 php.ini。"
+    return 1
+  fi
+  if ! wnmp_secure_php_sessions; then
+    echo "[update][ERROR] PHP 会话安全设置写入失败。"
+    return 1
+  fi
 
   systemctl enable php-fpm
   systemctl start php-fpm
@@ -6479,6 +6527,7 @@ mysqli.default_socket = /run/mariadb/mariadb.sock
 session.save_handler = files
 session.save_path = "/tmp"
 session.use_strict_mode = 1
+session.upload_progress.enabled = 0
 session.use_only_cookies = 1
 session.cookie_httponly = 1
 session.cookie_secure = 1
@@ -6560,6 +6609,7 @@ mysqli.default_socket = /run/mariadb/mariadb.sock
 session.save_handler = files
 session.save_path = "/tmp"
 session.use_strict_mode = 1
+session.upload_progress.enabled = 0
 session.use_only_cookies = 1
 session.cookie_httponly = 1
 session.cookie_secure = 1
@@ -6595,7 +6645,11 @@ apc.enable_cli=1
 EOF
 fi
 
-  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[install]"
+  wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[install]" || exit 1
+  if ! wnmp_secure_php_sessions; then
+    echo "[install][ERROR] PHP 会话安全设置写入失败。"
+    exit 1
+  fi
 
   systemctl enable php-fpm
   systemctl start php-fpm
