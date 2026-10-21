@@ -43,6 +43,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.67 2026-10-21 Updated PHP versions to 8.5.12, 8.4.27, 8.3.36, and 8.2.35. These PHP security releases fix two critical vulnerabilities that can allow unauthenticated remote code execution. All PHP users are strongly encouraged to update immediately.
+
 v1.66 2026-10-14 nginx-1.31.7 mainline versions have been released, with fixes for buffer overflow vulnerability when using alias with rewrite (CVE-2026-15176), buffer overflow vulnerability when evaluating string expressions with variables (CVE-2026-93479), request body injection vulnerability in HTTP/3 (CVE-2026-95101), session forgery vulnerability when using TLS session ticket key rotation (CVE-2026-97629), and use-after-free vulnerability when using ngx_http_ssi_module with AIO (CVE-2026-97205).
 
 v1.65 2026-10-01 Fixed an Nginx configuration test failure when enabling a public directory because the main configuration lacked the `$dl_site_root` map. New installations now include the map in both LAN and public Nginx templates, while existing installations add it automatically and idempotently when public directory mode is enabled.

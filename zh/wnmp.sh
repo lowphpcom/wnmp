@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.66
-# v1.66 2026-10-14 nginx-1.31.7 主线版本已发布， 修复了使用别名重写时的缓冲区溢出漏洞（CVE-2026-15176），以及变量字符串表达式评估时缓冲区溢出漏洞 （CVE-2026-93479）、HTTP/3 中的请求体注入漏洞（CVE-2026-95101）、使用 TLS 会话工单密钥轮换时的会话伪造漏洞（CVE-2026-97629），以及使用ngx_http_ssi_module配合 AIO 时的“释放后使用”漏洞（CVE-2026-97205）。
+# Version: 1.67
+# v1.67 2026-10-21 更新 PHP 版本至 8.5.12、8.4.27、8.3.36 和 8.2.35。这些 PHP 紧急安全更新修复了两个可能导致未经身份验证的远程代码执行的严重漏洞，强烈建议所有 PHP 用户立即更新。
 # Language channel: zh
 WNMP_LANG="zh"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.66"
+  green  " [init] Version: 1.67"
 green  "============================================================"
 echo
 sleep 1
@@ -4985,7 +4985,7 @@ wnmp_update_php() {
   old_php_version="$(wnmp_current_php_version)"
   echo "[update] 当前 PHP 版本：${old_php_version}"
 
-  php_version="$(wnmp_read_update_version "PHP" "8.4.21")" || return 1
+  php_version="$(wnmp_read_update_version "PHP" "8.4.27")" || return 1
 
   local php_tar="php-${php_version}.tar.gz"
   local php_dir="php-${php_version}"
@@ -6226,10 +6226,10 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
   select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     case $phpselcect in
       "不安装php") php_version='0'; break ;;
-      "php8.2") php_version='8.2.34'; break ;;
-      "php8.3") php_version='8.3.35'; break ;;
-      "php8.4") php_version='8.4.26'; break ;;
-      "php8.5") php_version='8.5.11'; break ;;
+      "php8.2") php_version='8.2.35'; break ;;
+      "php8.3") php_version='8.3.36'; break ;;
+      "php8.4") php_version='8.4.27'; break ;;
+      "php8.5") php_version='8.5.12'; break ;;
       *) echo "无效选项 $REPLY";;
     esac
   done

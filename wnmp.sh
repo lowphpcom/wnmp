@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.66
-# v1.66 2026-10-14 nginx-1.31.7 mainline versions have been released, with fixes for buffer overflow vulnerability when using alias with rewrite (CVE-2026-15176), buffer overflow vulnerability when evaluating string expressions with variables (CVE-2026-93479), request body injection vulnerability in HTTP/3 (CVE-2026-95101), session forgery vulnerability when using TLS session ticket key rotation (CVE-2026-97629), and use-after-free vulnerability when using ngx_http_ssi_module with AIO (CVE-2026-97205).
+# Version: 1.67
+# v1.67 2026-10-21 Updated PHP versions to 8.5.12, 8.4.27, 8.3.36, and 8.2.35. These PHP security releases fix two critical vulnerabilities that can allow unauthenticated remote code execution. All PHP users are strongly encouraged to update immediately.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.66"
+  green  " [init] Version: 1.67"
 green  "============================================================"
 echo
 sleep 1
@@ -5142,7 +5142,7 @@ wnmp_update_php() {
   old_php_version="$(wnmp_current_php_version)"
   echo "[update] Current PHP version: ${old_php_version}"
 
-  php_version="$(wnmp_read_update_version "PHP" "8.4.21")" || return 1
+  php_version="$(wnmp_read_update_version "PHP" "8.4.27")" || return 1
 
   local php_tar="php-${php_version}.tar.gz"
   local php_dir="php-${php_version}"
@@ -6385,10 +6385,10 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
   select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     case $phpselcect in
       "Do not install PHP") php_version='0'; break ;;
-      "php8.2") php_version='8.2.34'; break ;;
-      "php8.3") php_version='8.3.35'; break ;;
-      "php8.4") php_version='8.4.26'; break ;;
-      "php8.5") php_version='8.5.11'; break ;;
+      "php8.2") php_version='8.2.35'; break ;;
+      "php8.3") php_version='8.3.36'; break ;;
+      "php8.4") php_version='8.4.27'; break ;;
+      "php8.5") php_version='8.5.12'; break ;;
       *) echo "Invalid option $REPLY";;
     esac
   done
