@@ -3,8 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.67
-# v1.67 2026-10-21 Updated PHP versions to 8.5.12, 8.4.27, 8.3.36, and 8.2.35. These PHP security releases fix two critical vulnerabilities that can allow unauthenticated remote code execution. All PHP users are strongly encouraged to update immediately.
+# Version: 1.68
+# v1.68 2026-10-22 Updated the default Nginx version to 1.31.8 for new installations and wnmp update nginx. Completed PHP security configuration for new installations and after restoring a backed-up php.ini: memory_limit = -1, post_max_size = 32M, and an individual upload limit of 16M while preserving smaller limits. Only PHP 8.5 receives fatal_error_backtraces = 0. Existing session settings and unrelated customizations are preserved; missing session.upload_progress.enabled = 0 and session.use_strict_mode = 1 directives are added idempotently. PHP-FPM enforces the memory and POST limits and the PHP 8.5 backtrace setting, and component updates verify worker restart. Generated Nginx default, HTTP/HTTPS site, and reverse-proxy configurations use client_max_body_size 32M. Deprecated session ID tuning and E_STRICT defaults were removed from new PHP templates. These measures supplement upgrading to patched PHP releases.
 # Language channel: en
 WNMP_LANG="en"
 
@@ -68,7 +68,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.67"
+  green  " [init] Version: 1.68"
 green  "============================================================"
 echo
 sleep 1
@@ -2666,6 +2666,7 @@ vhost() {
 server{
     listen 80;
     server_name example;
+    client_max_body_size 32M;
     root  /home/wwwroot/default;
     index index.html index.php;
     include block.conf;
@@ -2977,6 +2978,7 @@ server{
     http2 on;
     #http3 on;
     server_name example;
+    client_max_body_size 32M;
     root  /home/wwwroot/default;
     index index.html index.php;
     include block.conf;
@@ -3378,7 +3380,7 @@ server {
     }
 
     # One location handles every URI, including arbitrary static resources.
-    client_max_body_size 0;
+    client_max_body_size 32M;
     location / {
         proxy_pass ${proxy_pass_url};
         proxy_http_version 1.1;
@@ -3698,26 +3700,72 @@ wnmp_restore_php_ini_backup() {
   echo "${label} Restored previous php.ini: ${php_ini_backup}"
 }
 
-wnmp_secure_php_sessions() {
-  local php_ini="${1:-/usr/local/php/etc/php.ini}"
-  local tmp upload_progress="" strict_mode=""
+wnmp_secure_php_config() {
+  local php_version="$1"
+  local php_ini="${2:-/usr/local/php/etc/php.ini}"
+  local tmp php85=0
 
+  case "$php_version" in
+    8.5.*) php85=1 ;;
+    8.[234].*) ;;
+    *) return 1 ;;
+  esac
   [ -f "$php_ini" ] || return 1
-  # Preserve existing settings; add only missing, uncommented directives.
-  if ! grep -qE '^[[:space:]]*session\.upload_progress\.enabled[[:space:]]*=' "$php_ini"; then
-    upload_progress="session.upload_progress.enabled = 0"
-  fi
-  if ! grep -qE '^[[:space:]]*session\.use_strict_mode[[:space:]]*=' "$php_ini"; then
-    strict_mode="session.use_strict_mode = 1"
-  fi
-  [ -n "${upload_progress}${strict_mode}" ] || return 0
-
   tmp="$(mktemp "${php_ini}.tmp.XXXXXX")" || return 1
-  if ! cp -p "$php_ini" "$tmp" || ! {
-    if [ -n "$upload_progress" ]; then printf '%s\n' "$upload_progress"; fi
-    if [ -n "$strict_mode" ]; then printf '%s\n' "$strict_mode"; fi
-    cat "$php_ini"
-  } > "$tmp" || ! mv -f "$tmp" "$php_ini"; then
+
+  # Apply the chosen OOM limits; preserve existing session directives and unrelated settings.
+  if ! cp -p "$php_ini" "$tmp" || ! awk -v php85="$php85" '
+    function key_of(line, key) {
+      sub(/^[ \t]+/, "", line)
+      if (line ~ /^[;#[]/ || line !~ /=/) return ""
+      key=line
+      sub(/[ \t]*=.*/, "", key)
+      return tolower(key)
+    }
+    function upload_limit(line, value, unit, bytes) {
+      sub(/^[^=]*=[ \t]*/, "", line)
+      sub(/[;#].*$/, "", line)
+      gsub(/[ \t\r"\047]/, "", line)
+      value=tolower(line)
+      if (value !~ /^[0-9]+[kmg]?$/) return "16M"
+      unit=substr(value, length(value), 1)
+      bytes=value+0
+      if (unit == "k") bytes*=1024
+      if (unit == "m") bytes*=1024*1024
+      if (unit == "g") bytes*=1024*1024*1024
+      return bytes > 0 && bytes <= 16*1024*1024 ? toupper(value) : "16M"
+    }
+    function defaults() {
+      print "memory_limit = -1"
+      print "post_max_size = 32M"
+      print "upload_max_filesize = " (upload == "" ? "16M" : upload)
+      if (php85) print "fatal_error_backtraces = 0"
+      if (!progress) print "session.upload_progress.enabled = 0"
+      if (!strict) print "session.use_strict_mode = 1"
+      emitted=1
+    }
+    pass == 1 {
+      key=key_of($0)
+      if (key == "session.upload_progress.enabled") progress=1
+      if (key == "session.use_strict_mode") strict=1
+      if (key == "upload_max_filesize") upload=upload_limit($0)
+      next
+    }
+    {
+      if (!emitted) defaults()
+      key=key_of($0)
+      if (key == "memory_limit" || key == "post_max_size" || key == "upload_max_filesize") next
+      if (php85 && key == "fatal_error_backtraces") next
+      print
+    }
+    END { if (!emitted) defaults() }
+  ' pass=1 "$php_ini" pass=2 "$php_ini" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if cmp -s "$php_ini" "$tmp"; then
+    rm -f "$tmp"
+  elif ! mv -f "$tmp" "$php_ini"; then
     rm -f "$tmp"
     return 1
   fi
@@ -5056,7 +5104,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.7")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.8")" || return 1
   local nginx_tar="nginx-${nginx_version}.tar.gz"
   local nginx_dir="nginx-${nginx_version}"
   local nginx_url="https://nginx.org/download/${nginx_tar}"
@@ -5308,6 +5356,8 @@ error_log = /usr/local/php/var/log/php-fpm.log
 log_level = notice
 
 [www]
+php_admin_value[memory_limit] = -1
+php_admin_value[post_max_size] = 32M
 listen = /tmp/php-cgi.sock
 listen.backlog = -1
 listen.allowed_clients = 127.0.0.1
@@ -5329,18 +5379,23 @@ slowlog = /usr/local/php/var/log/slow.log
 EOF
 
   if [[ "$php_version" =~ ^8\.5\. ]]; then
+    printf '%s\n' 'php_admin_value[fatal_error_backtraces] = 0' >> /usr/local/php/etc/php-fpm.conf
+  fi
+
+  if [[ "$php_version" =~ ^8\.5\. ]]; then
     cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=inotify.so
 extension=redis.so
 extension=apcu.so
 [PHP]
+fatal_error_backtraces = 0
 engine = On
 short_open_tag = Off
-memory_limit = 1G
+memory_limit = -1
 max_execution_time = 300
-upload_max_filesize = 10G
-post_max_size = 10G
+upload_max_filesize = 16M
+post_max_size = 32M
 upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
@@ -5348,6 +5403,9 @@ allow_url_include = Off
 pdo_mysql.default_socket=/run/mariadb/mariadb.sock
 [MySQLi]
 mysqli.default_socket = /run/mariadb/mariadb.sock
+[Session]
+session.upload_progress.enabled = 0
+session.use_strict_mode = 1
 [opcache]
 opcache.enable=1
 opcache.enable_cli=1
@@ -5362,10 +5420,10 @@ zend_extension=opcache
 [PHP]
 engine = On
 short_open_tag = Off
-memory_limit = 1G
+memory_limit = -1
 max_execution_time = 300
-upload_max_filesize = 10G
-post_max_size = 10G
+upload_max_filesize = 16M
+post_max_size = 32M
 upload_tmp_dir = /data/php_upload_tmp
 allow_url_fopen = Off
 allow_url_include = Off
@@ -5373,6 +5431,9 @@ allow_url_include = Off
 pdo_mysql.default_socket=/run/mariadb/mariadb.sock
 [MySQLi]
 mysqli.default_socket = /run/mariadb/mariadb.sock
+[Session]
+session.upload_progress.enabled = 0
+session.use_strict_mode = 1
 [opcache]
 opcache.enable=1
 opcache.enable_cli=1
@@ -5383,8 +5444,8 @@ EOF
     echo "[update][ERROR] Failed to restore php.ini from the configuration backup."
     return 1
   fi
-  if ! wnmp_secure_php_sessions; then
-    echo "[update][ERROR] Failed to apply PHP session security settings."
+  if ! wnmp_secure_php_config "$php_version"; then
+    echo "[update][ERROR] Failed to apply PHP security settings."
     return 1
   fi
 
@@ -5419,8 +5480,14 @@ EOF
   /usr/local/php/bin/pie install phpredis/phpredis
   /usr/local/php/bin/pie install arnaud-lb/inotify
   /usr/local/php/bin/pie install apcu/apcu
-  systemctl restart php-fpm
-  php -v
+  if ! systemctl restart php-fpm || ! systemctl is-active --quiet php-fpm; then
+    echo "[update][ERROR] PHP-FPM restart failed; the update is not complete."
+    return 1
+  fi
+  if ! php -v; then
+    echo "[update][ERROR] PHP version check failed after installation."
+    return 1
+  fi
   echo "[update] PHP update completed."
 }
 
@@ -6617,6 +6684,8 @@ error_log = /usr/local/php/var/log/php-fpm.log
 log_level = notice
 
 [www]
+php_admin_value[memory_limit] = -1
+php_admin_value[post_max_size] = 32M
 listen = /tmp/php-cgi.sock
 listen.backlog = -1
 listen.allowed_clients = 127.0.0.1
@@ -6637,6 +6706,10 @@ request_slowlog_timeout = 5s
 slowlog = /usr/local/php/var/log/slow.log
 EOF
 
+  if [[ "$php_version" =~ ^8\.5\. ]]; then
+    printf '%s\n' 'php_admin_value[fatal_error_backtraces] = 0' >> /usr/local/php/etc/php-fpm.conf
+  fi
+
 php_version="${php_version:-$("$PHP" -r 'echo PHP_VERSION;')}"
 
 if [[  "$php_version" =~ ^8\.5\. ]]; then
@@ -6646,6 +6719,7 @@ extension=inotify.so
 extension=redis.so
 extension=apcu.so
 [PHP]
+fatal_error_backtraces = 0
 engine = On
 short_open_tag = Off
 precision = 14
@@ -6658,16 +6732,16 @@ zend.exception_ignore_args = On
 zend.exception_string_param_max_len = 0
 expose_php = On
 max_execution_time = 300
-memory_limit = 1G
-error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+memory_limit = -1
+error_reporting = E_ALL & ~E_DEPRECATED
 display_errors = Off
 display_startup_errors = Off
 log_errors = On
 variables_order = "GPCS"
 request_order = "GP"
 file_uploads = On
-upload_max_filesize = 10G
-post_max_size = 10G
+upload_max_filesize = 16M
+post_max_size = 32M
 max_file_uploads = 100
 max_input_time = 0
 upload_tmp_dir = /data/php_upload_tmp
@@ -6692,8 +6766,6 @@ session.cookie_httponly = 1
 session.cookie_secure = 1
 session.cookie_samesite = Lax
 session.gc_maxlifetime = 1440
-session.sid_length = 48
-session.sid_bits_per_character = 6
 
 [opcache]
 opcache.enable=1
@@ -6741,16 +6813,16 @@ zend.exception_ignore_args = On
 zend.exception_string_param_max_len = 0
 expose_php = On
 max_execution_time = 300
-memory_limit = 1G
-error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+memory_limit = -1
+error_reporting = E_ALL & ~E_DEPRECATED
 display_errors = Off
 display_startup_errors = Off
 log_errors = On
 variables_order = "GPCS"
 request_order = "GP"
 file_uploads = On
-upload_max_filesize = 10G
-post_max_size = 10G
+upload_max_filesize = 16M
+post_max_size = 32M
 max_file_uploads = 100
 max_input_time = 0
 upload_tmp_dir = /data/php_upload_tmp
@@ -6774,8 +6846,6 @@ session.cookie_httponly = 1
 session.cookie_secure = 1
 session.cookie_samesite = Lax
 session.gc_maxlifetime = 1440
-session.sid_length = 48
-session.sid_bits_per_character = 6
 
 [opcache]
 opcache.enable=1
@@ -6805,8 +6875,8 @@ EOF
 fi
 
   wnmp_restore_php_ini_backup "$(wnmp_resolve_php_ini_backup)" "[install]" || exit 1
-  if ! wnmp_secure_php_sessions; then
-    echo "[install][ERROR] Failed to apply PHP session security settings."
+  if ! wnmp_secure_php_config "$php_version"; then
+    echo "[install][ERROR] Failed to apply PHP security settings."
     exit 1
   fi
 
@@ -6900,7 +6970,7 @@ case "$choosenginx" in
 
     if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.7.tar.gz" "$WNMPDIR/nginx.tar.gz"
+      download_with_mirrors "https://nginx.org/download/nginx-1.31.8.tar.gz" "$WNMPDIR/nginx.tar.gz"
       mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
@@ -7701,7 +7771,7 @@ http {
     proxy_request_buffering on;
     
     client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
-    client_max_body_size 10g;
+    client_max_body_size 32M;
     client_body_buffer_size 512k;
     client_header_timeout 300s;
     client_body_timeout   1800s;
@@ -7848,7 +7918,7 @@ http {
     proxy_request_buffering on;
     
     client_body_temp_path /usr/local/nginx/client_body_temp 1 2;
-    client_max_body_size 10g;
+    client_max_body_size 32M;
     client_body_buffer_size 512k;
     client_header_timeout 300s;
     client_body_timeout   1800s;

@@ -39,6 +39,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.68 2026-10-22 Nginx 全新安装和 wnmp update nginx 的默认版本更新为 1.31.8。完善全新安装及备份恢复后的 PHP 安全配置：memory_limit = -1、post_max_size = 32M，单文件上传上限为 16M，保留已有更小限制。仅 PHP 8.5 设置 fatal_error_backtraces = 0。保留已有会话参数及其他自定义配置，仅幂等补齐缺失的 session.upload_progress.enabled = 0 和 session.use_strict_mode = 1。PHP-FPM 在管理层强制应用内存、POST 限制及 PHP 8.5 回溯设置，组件升级后检查 worker 重启状态。生成的 Nginx 默认站点、HTTP/HTTPS 站点及反向代理配置统一使用 client_max_body_size 32M。新 PHP 模板移除已弃用的会话 ID 调整及 E_STRICT 默认配置。这些措施作为升级到已修复 PHP 版本的补充。
+
 v1.67 2026-10-21 更新 PHP 版本至 8.5.12、8.4.27、8.3.36 和 8.2.35。这些 PHP 紧急安全更新修复了两个可能导致未经身份验证的远程代码执行的严重漏洞，强烈建议所有 PHP 用户立即更新。
 
 v1.66 2026-10-14 nginx-1.31.7 主线版本已发布， 修复了使用别名重写时的缓冲区溢出漏洞（CVE-2026-15176），以及变量字符串表达式评估时缓冲区溢出漏洞 （CVE-2026-93479）、HTTP/3 中的请求体注入漏洞（CVE-2026-95101）、使用 TLS 会话工单密钥轮换时的会话伪造漏洞（CVE-2026-97629），以及使用ngx_http_ssi_module配合 AIO 时的“释放后使用”漏洞（CVE-2026-97205）。
