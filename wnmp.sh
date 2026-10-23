@@ -8727,7 +8727,5 @@ trap - EXIT
 disable_proxy
 
 auto_optimize_services
-
-wnmp_kernel_tune
-
 configure_fail2ban || true
+wnmp_kernel_tune
