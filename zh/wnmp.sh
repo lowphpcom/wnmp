@@ -559,6 +559,9 @@ status() {
     if command -v fail2ban-client >/dev/null 2>&1; then
       echo
       fail2ban-client status || true
+      echo
+      echo "▶ fail2ban sshd 封禁状态:"
+      fail2ban-client status sshd || true
     fi
   else
     echo "⚠️  未找到 fail2ban 服务。"

@@ -695,6 +695,9 @@ status() {
     if command -v fail2ban-client >/dev/null 2>&1; then
       echo
       fail2ban-client status || true
+      echo
+      echo "▶ fail2ban sshd jail status:"
+      fail2ban-client status sshd || true
     fi
   else
     echo "⚠️  fail2ban service not found."
