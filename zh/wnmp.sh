@@ -553,6 +553,17 @@ status() {
     fi
   done
 
+  echo "▶ fail2ban 运行状态:"
+  if service_exists fail2ban; then
+    systemctl --no-pager --full status fail2ban || true
+    if command -v fail2ban-client >/dev/null 2>&1; then
+      echo
+      fail2ban-client status || true
+    fi
+  else
+    echo "⚠️  未找到 fail2ban 服务。"
+  fi
+
   exit 0
 }
 restart() {
