@@ -43,6 +43,8 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 
 ## Update Log
 
+v1.69 2026-10-23 Added MariaDB upgrade/downgrade to component updates in menu 11 (wnmp update mariadb). Fresh installations and updates now share MariaDB series 10.11, 11.4, 11.8 and 12.3, with default complete versions 10.11.19, 11.4.13, 11.8.9 and 12.3.3. MariaDB series outside Mroonga compatibility, incomplete or mismatched versions and invalid source archives are rejected; MariaDB 12.3 requires Mroonga 16.12 or later, and cached Mroonga archives are checked. Updates use existing local administrative credentials without prompting for a root password, compile and verify the target version before stopping the database, and retain full SQL, program, configuration and stopped-server data backups under /home/wnmp-backups/mariadb/. Application databases, routines, events, triggers, accounts, roles and grants are restored automatically into newly initialized system tables while database access is paused; failed updates attempt to restore the previous version. Custom system metadata such as time zone tables, replication settings and third-party plugins/UDFs requires separate migration; Mroonga is rebuilt automatically. Added root password changes in menu 20 (wnmp mysqlpass) with hidden input, confirmation and preserved local socket authentication; fresh installations still require a root password. English and Chinese scripts and documentation are synchronized.
+
 v1.68 2026-10-22 Updated the default Nginx version to 1.31.8 for new installations and wnmp update nginx. Completed PHP security configuration for new installations and after restoring a backed-up php.ini: memory_limit = -1, post_max_size = 32M, and an individual upload limit of 16M while preserving smaller limits. Only PHP 8.5 receives fatal_error_backtraces = 0. Existing session settings and unrelated customizations are preserved; missing session.upload_progress.enabled = 0 and session.use_strict_mode = 1 directives are added idempotently. PHP-FPM enforces the memory and POST limits and the PHP 8.5 backtrace setting, and component updates verify worker restart. Generated Nginx default, HTTP/HTTPS site, and reverse-proxy configurations use client_max_body_size 32M. Deprecated session ID tuning and E_STRICT defaults were removed from new PHP templates. These measures supplement upgrading to patched PHP releases.
 
 v1.67 2026-10-21 Updated PHP versions to 8.5.12, 8.4.27, 8.3.36, and 8.2.35. These PHP security releases fix two critical vulnerabilities that can allow unauthenticated remote code execution. All PHP users are strongly encouraged to update immediately.
@@ -220,9 +222,17 @@ Please execute commands using the root account on a completely clean system.
 | Restart All Services | `wnmp restart` |
 | Update Nginx | `wnmp update nginx` # If phpMyAdmin is installed, enter its access password |
 | Update PHP | `wnmp update php` # Then enter the target PHP version |
+| Upgrade or downgrade MariaDB | `wnmp update mariadb` # Full backup followed by automatic data, account and grant restoration |
+| Change MariaDB root password | Menu 20 or `wnmp mysqlpass` # Hidden input with confirmation; keeps local socket authentication |
 | Cleanup | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` / `wnmp rephpmyadmin` |
 | SSL Renewal | `wnmp sshcheck` / `wnmp sshtest`  |
 ---
+
+Fresh MariaDB installations and component updates in menu 11 offer the same series: 10.11, 11.4, 11.8 and 12.3. Their default complete versions are 10.11.19, 11.4.13, 11.8.9 and 12.3.3. Select a series, then enter a complete version or accept its default. A series outside the current Mroonga compatibility range is rejected. MariaDB 12.3 requires Mroonga 16.12 or later; cached source archives are checked.
+
+Fresh installations require a root password. Updates use existing local administrative credentials without another password prompt, and stop if authentication or backup fails. Full SQL, program, configuration and stopped-server data backups are retained in `/home/wnmp-backups/mariadb/`. The target version initializes its own system tables, then restores application databases, routines, events, accounts, roles and grants automatically. Database access is paused during restoration. Failed updates attempt to restore the previous version, including when a downgrade encounters unsupported SQL or configuration. Newer database files are not opened directly by an older server.
+
+Custom system metadata in `mysql` (such as time zone tables, replication settings or third-party plugins/UDFs) remains in the full backup and requires separate migration; Mroonga is rebuilt automatically.
 
 ## 🌐 Optional Footer Badge
 

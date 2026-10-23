@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.68
+# Version: 1.69
+# v1.69 2026-10-23 Added MariaDB upgrade/downgrade to component updates in menu 11 (wnmp update mariadb). Fresh installations and updates now share MariaDB series 10.11, 11.4, 11.8 and 12.3, with default complete versions 10.11.19, 11.4.13, 11.8.9 and 12.3.3. MariaDB series outside Mroonga compatibility, incomplete or mismatched versions and invalid source archives are rejected; MariaDB 12.3 requires Mroonga 16.12 or later, and cached Mroonga archives are checked. Updates use existing local administrative credentials without prompting for a root password, compile and verify the target version before stopping the database, and retain full SQL, program, configuration and stopped-server data backups under /home/wnmp-backups/mariadb/. Application databases, routines, events, triggers, accounts, roles and grants are restored automatically into newly initialized system tables while database access is paused; failed updates attempt to restore the previous version. Custom system metadata such as time zone tables, replication settings and third-party plugins/UDFs requires separate migration; Mroonga is rebuilt automatically. Added root password changes in menu 20 (wnmp mysqlpass) with hidden input, confirmation and preserved local socket authentication; fresh installations still require a root password. English and Chinese scripts and documentation are synchronized.
 # v1.68 2026-10-22 Updated the default Nginx version to 1.31.8 for new installations and wnmp update nginx. Completed PHP security configuration for new installations and after restoring a backed-up php.ini: memory_limit = -1, post_max_size = 32M, and an individual upload limit of 16M while preserving smaller limits. Only PHP 8.5 receives fatal_error_backtraces = 0. Existing session settings and unrelated customizations are preserved; missing session.upload_progress.enabled = 0 and session.use_strict_mode = 1 directives are added idempotently. PHP-FPM enforces the memory and POST limits and the PHP 8.5 backtrace setting, and component updates verify worker restart. Generated Nginx default, HTTP/HTTPS site, and reverse-proxy configurations use client_max_body_size 32M. Deprecated session ID tuning and E_STRICT defaults were removed from new PHP templates. These measures supplement upgrading to patched PHP releases.
 # Language channel: en
 WNMP_LANG="en"
@@ -68,7 +69,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.68"
+  green  " [init] Version: 1.69"
 green  "============================================================"
 echo
 sleep 1
@@ -93,6 +94,8 @@ Usage:
   wnmp update        # Update WNMP script itself
   wnmp update nginx  # Update Nginx, then enter the target version
   wnmp update php    # Update PHP, then enter the target version
+  wnmp update mariadb # Upgrade/downgrade MariaDB with full backup and restore
+  wnmp mysqlpass     # Change the MariaDB root password
   wnmp remove        # Uninstall everything
   wnmp renginx       # Uninstall Nginx
   wnmp rephp         # Uninstall PHP
@@ -553,18 +556,20 @@ upgrade_components_menu() {
     cat <<'UPGRADE_MENU'
   1) Upgrade or downgrade Nginx       (wnmp update nginx)
   2) Upgrade or downgrade PHP         (wnmp update php)
+  3) Upgrade or downgrade MariaDB     (wnmp update mariadb)
   0) Back
 UPGRADE_MENU
     echo
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-2]: " choice </dev/tty || true
+      read -rp "Please select [0-3]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-2]: " choice || true
+      read -rp "Please select [0-3]: " choice || true
     fi
     case "${choice}" in
       1) wnmp_update nginx; exit 0 ;;
       2) wnmp_update php; exit 0 ;;
+      3) wnmp_update mariadb; exit 0 ;;
       0) return 0 ;;
       *) echo "[setup] Invalid selection: ${choice}" ;;
     esac
@@ -618,7 +623,7 @@ main_menu() {
   8) Kernel / network tuning only        (wnmp tool)
   9) Restart services                    (wnmp restart)
  10) Delete components                   (wnmp remove / renginx / rephp / remariadb / rephpmyadmin)
- 11) Upgrade components                 (wnmp update nginx / wnmp update php)
+ 11) Update components                  (Nginx / PHP / MariaDB)
  12) Self-check and attempt to fix sshd  (wnmp fixsshd)
  13) SSL certificate management          (wnmp ssl)
  14) Configure ACME DNS API provider     (wnmp dns)
@@ -627,14 +632,15 @@ main_menu() {
  17) Nginx reverse proxy management      (wnmp proxy)
  18) Update WNMP script                  (wnmp update / wnmp update force)
  19) Time management                     (wnmp time)
+ 20) Change MariaDB root password        (wnmp mysqlpass)
   0) Exit
 MENU
   echo
   local choice=""
   if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-19]: " choice </dev/tty || true
+      read -rp "Please select [0-20]: " choice </dev/tty || true
   else
-      read -rp "Please select [0-19]: " choice || true
+      read -rp "Please select [0-20]: " choice || true
   fi
 
   case "${choice}" in
@@ -657,6 +663,7 @@ MENU
     17) reverse_proxy_menu; main_menu; exit 0 ;;
     18) wnmp_update; exit 0 ;;
     19) time_management_menu; main_menu; exit 0 ;;
+    20) wnmp_change_mysql_password; main_menu; exit 0 ;;
     0) echo "[info] Bye."; exit 0 ;;
     *) echo "[setup] Invalid selection: ${choice}"; usage; exit 1 ;;
   esac
@@ -4390,7 +4397,7 @@ wnmp_prompt_mysql_password() {
   local pass1 pass2
 
   while :; do
-    read -rsp "Please set the MariaDB root password: " pass1
+    read -rsp "Please set the MariaDB root password: " pass1 || return 1
     echo
 
     if [ -z "$pass1" ]; then
@@ -4408,7 +4415,7 @@ wnmp_prompt_mysql_password() {
       continue
     fi
 
-    read -rsp "Please confirm the password: " pass2
+    read -rsp "Please confirm the password: " pass2 || return 1
     echo
 
     if [ "$pass1" != "$pass2" ]; then
@@ -4574,6 +4581,7 @@ install_mroonga() {
 
   cd "$WNMPDIR" || { echo "[mroonga][ERROR] cd $WNMPDIR failed"; return 1; }
 
+  if [[ "${WNMP_REUSE_GROONGA:-0}" != 1 ]]; then
   echo "[mroonga] purge old groonga packages..."
   apt remove --purge -y 'groonga*' 'libgroonga*' || true
   apt -f install -y || true
@@ -4651,6 +4659,8 @@ install_mroonga() {
   apt install -y groonga-token-filter-stem groonga-tokenizer-mecab libgroonga-dev groonga-normalizer-mysql || {
     echo "[mroonga][WARN] apt groonga extra packages install failed (continue)"; }
 
+  fi
+
   echo "[mroonga] fetch mroonga source..."
   if [ ! -f "$MROONGA_TAR" ]; then
     rm -rf "$MROONGA_SRC"
@@ -4702,16 +4712,20 @@ install_mroonga() {
   cmake --install "$MROONGA_BUILD" || { echo "[mroonga][ERROR] mroonga install failed"; return 1; }
 
   echo "[mroonga] run install.sql..."
-  /usr/local/mariadb/bin/mysql -u root < /usr/local/mroonga/share/mroonga/install.sql || {
+  wnmp_mariadb_client < /usr/local/mroonga/share/mroonga/install.sql || {
     echo "[mroonga][WARN] install.sql failed (continue to force-install plugin)"; }
 
   echo "[mroonga] install ha_mroonga.so into MariaDB plugin_dir (atomic)..."
-  PLUGINDIR=$(/usr/local/mariadb/bin/mysql_config --plugindir 2>/dev/null)
+  PLUGINDIR=$(/usr/local/mariadb/bin/mysql_config --plugindir 2>/dev/null) || return 1
+  if [[ "$PLUGINDIR" != /usr/local/mariadb/* || ! -d "$PLUGINDIR" ]]; then
+    echo "[mroonga][ERROR] Invalid MariaDB plugin directory. Installation cancelled."
+    return 1
+  fi
   
   SRC_SO="$MROONGA_BUILD/ha_mroonga.so"
 
   if [ ! -s "$SRC_SO" ]; then
-    SRC_SO="$(find $MROONGA_BUILD -name ha_mroonga.so -type f -size +10k 2>/dev/null | head -n 1)"
+    SRC_SO="$(find "$MROONGA_BUILD" -name ha_mroonga.so -type f -size +10k -print -quit 2>/dev/null)"
   fi
   if [ ! -s "${SRC_SO:-}" ]; then
     echo "[mroonga][ERROR] built ha_mroonga.so not found under $MROONGA_BUILD"
@@ -5096,7 +5110,7 @@ wnmp_install_build_deps() {
     libzstd-dev wget curl m4 autoconf re2c pkg-config libxml2-dev libsodium-dev libcurl4-openssl-dev \
     libbz2-dev openssl libssl-dev libtidy-dev libxslt1-dev libsqlite3-dev zlib1g-dev \
     libpng-dev libjpeg-dev libwebp-dev libonig-dev libzip-dev libpcre2-8-0 libpcre2-dev \
-    cmake bison libncurses-dev libfreetype-dev unzip
+    cmake ninja-build bison libncurses-dev libfreetype-dev unzip
 }
 
 wnmp_update_nginx() {
@@ -5491,6 +5505,564 @@ EOF
   echo "[update] PHP update completed."
 }
 
+
+# Keep the install and update menus on the same supported MariaDB series.
+wnmp_mariadb_default_version() {
+  case "$1" in
+    10.11) printf '%s\n' '10.11.19' ;;
+    11.4) printf '%s\n' '11.4.13' ;;
+    11.8) printf '%s\n' '11.8.9' ;;
+    12.3) printf '%s\n' '12.3.3' ;;
+    *) return 1 ;;
+  esac
+}
+
+wnmp_validate_mariadb_version() {
+  local version="$1" series
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "[mariadb][ERROR] Enter a complete version, for example 10.11.19." >&2
+    return 1
+  fi
+  series="${version%.*}"
+  if ! wnmp_mariadb_default_version "$series" >/dev/null; then
+    echo "[mariadb][ERROR] MariaDB ${series} is outside the current Mroonga compatibility range; choose 10.11, 11.4, 11.8 or 12.3." >&2
+    return 1
+  fi
+}
+
+wnmp_choose_mariadb_version() {
+  local mode="${1:-install}" choice series default_version
+  echo 'Select a MariaDB series:'
+  echo '  1) MariaDB 10.11 (10.11.19)'
+  echo '  2) MariaDB 11.4  (11.4.13)'
+  echo '  3) MariaDB 11.8  (11.8.9)'
+  echo '  4) MariaDB 12.3  (12.3.3)'
+  echo '  0) Skip / return'
+  read -rp 'Choose [0-4], or enter a series: ' choice || return 1
+  case "$choice" in
+    0) mariadb_version=0; return 0 ;;
+    1|10.11) series=10.11 ;;
+    2|11.4) series=11.4 ;;
+    3|11.8) series=11.8 ;;
+    4|12.3) series=12.3 ;;
+    *)
+      echo '[mariadb][ERROR] This series is outside the current Mroonga compatibility range. Choose 10.11, 11.4, 11.8 or 12.3.'
+      return 1 ;;
+  esac
+  if [[ "$mode" == install ]]; then
+    wnmp_prompt_mysql_password || return 1
+  fi
+  default_version="$(wnmp_mariadb_default_version "$series")" || return 1
+  read -rp "Enter the complete MariaDB version [${default_version}]: " mariadb_version || return 1
+  mariadb_version="${mariadb_version:-$default_version}"
+  wnmp_validate_mariadb_version "$mariadb_version" || return 1
+  if [[ "${mariadb_version%.*}" != "$series" ]]; then
+    echo "[mariadb][ERROR] The complete version does not match the selected series."
+    return 1
+  fi
+}
+
+wnmp_mariadb_client() {
+  local -a socket_args=()
+  if [[ -n "${WNMP_MARIADB_SOCKET:-}" ]]; then
+    socket_args=(--socket="$WNMP_MARIADB_SOCKET")
+  fi
+  /usr/local/mariadb/bin/mariadb --user=root --protocol=SOCKET \
+    --connect-timeout=5 "${socket_args[@]}" "$@"
+}
+
+wnmp_mariadb_dump() {
+  local -a socket_args=()
+  if [[ -n "${WNMP_MARIADB_SOCKET:-}" ]]; then
+    socket_args=(--socket="$WNMP_MARIADB_SOCKET")
+  fi
+  /usr/local/mariadb/bin/mariadb-dump --user=root --protocol=SOCKET \
+    "${socket_args[@]}" "$@"
+}
+
+wnmp_mariadb_sql() {
+  wnmp_mariadb_client --batch --raw --skip-column-names -e "$1"
+}
+
+wnmp_current_mariadb_version() {
+  local version
+  version="$(wnmp_mariadb_sql 'SELECT VERSION()' 2>/dev/null)" || return 1
+  printf '%s\n' "${version%%-*}"
+}
+
+wnmp_apply_mysql_password() {
+  wnmp_mysql_pass_configured || return 1
+  local escaped_password="${MYSQL_PASS//\\/\\\\}"
+  wnmp_mariadb_client --skip-print-query-on-error <<SQL || return 1
+SET SESSION sql_mode = '';
+ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket
+  OR mysql_native_password USING PASSWORD('${escaped_password}');
+SQL
+}
+
+wnmp_change_mysql_password() {
+  if ! wnmp_mariadb_sql 'SELECT 1' >/dev/null; then
+    echo '[mariadb][ERROR] Cannot connect using the local administrative credentials. The password was not changed.'
+    return 1
+  fi
+  wnmp_prompt_mysql_password || return 1
+  wnmp_apply_mysql_password || return 1
+  echo '[mariadb] The root password was changed. Local socket authentication is retained.'
+}
+
+# Inspect the archive version as well as the chosen database series. An old
+# unversioned cache must not silently select an incompatible Mroonga release.
+wnmp_prepare_mroonga_archive() {
+  local version="$1" archive="$WNMPDIR/mroonga.tar.gz" minimum=16.11 found='' root=''
+  [[ "${version%.*}" != 12.3 ]] || minimum=16.12
+  if [[ -s "$archive" ]]; then
+    root="$(tar -tzf "$archive" 2>/dev/null | awk 'NR==1{root=$0} END{print root}')" || root=''
+    found="${root%%/*}"; found="${found#mroonga-}"
+  fi
+  if [[ ! "$found" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || \
+     [[ "$(printf '%s\n' "$minimum" "$found" | sort -V | head -n1)" != "$minimum" ]]; then
+    echo "[mroonga] Fetching a source archive compatible with the selected database..."
+    if ! download_with_mirrors 'https://packages.groonga.org/source/mroonga/mroonga-latest.tar.gz' "${archive}.new"; then
+      return 1
+    fi
+    root="$(tar -tzf "${archive}.new" 2>/dev/null | awk 'NR==1{root=$0} END{print root}')" || return 1
+    found="${root%%/*}"; found="${found#mroonga-}"
+    if [[ ! "$found" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || \
+       [[ "$(printf '%s\n' "$minimum" "$found" | sort -V | head -n1)" != "$minimum" ]]; then
+      echo "[mroonga][ERROR] Incompatible source archive; Mroonga >= ${minimum}."
+      return 1
+    fi
+    mv -f "${archive}.new" "$archive" || return 1
+  fi
+  echo "[mroonga] MariaDB ${version} / Mroonga ${found}"
+}
+
+wnmp_verify_mariadb_install() {
+  local expected="$1" actual engine
+  actual="$(wnmp_current_mariadb_version)" || return 1
+  if [[ "$actual" != "$expected" ]]; then
+    echo "[mariadb][ERROR] Version verification failed: expected ${expected}, actual ${actual}."
+    return 1
+  fi
+  engine="$(wnmp_mariadb_sql "SELECT COUNT(*) FROM information_schema.ENGINES WHERE ENGINE='Mroonga' AND SUPPORT IN ('YES','DEFAULT')")" || return 1
+  if [[ "$engine" != 1 ]]; then
+    echo '[mariadb][ERROR] The Mroonga engine is not loaded.'
+    return 1
+  fi
+}
+
+wnmp_prepare_mariadb_archive() {
+  local version="$1" root
+  wnmp_validate_mariadb_version "$version" || return 1
+  wnmp_prepare_update_archive MariaDB "$version" \
+    "https://archive.mariadb.org/mariadb-${version}/source/mariadb-${version}.tar.gz" \
+    "$WNMPDIR/mariadb-${version}.tar.gz" || return 1
+  root="$(tar -tzf "$WNMPDIR/mariadb-${version}.tar.gz" | awk 'NR==1{root=$0} END{print root}')" || return 1
+  if [[ "${root%%/*}" != "mariadb-${version}" ]]; then
+    echo '[mariadb][ERROR] The source archive does not match the requested version.'
+    return 1
+  fi
+  wnmp_prepare_mroonga_archive "$version"
+}
+
+# Portable account statements are restored instead of copying system tables
+# from another MariaDB release. The complete original SQL dump is also kept.
+wnmp_export_mariadb_accounts() {
+  local backup="$1"
+  wnmp_mariadb_dump \
+    --system=users --skip-lock-tables > "$backup/accounts.raw.sql" || return 1
+  sed 's/^CREATE USER /CREATE USER IF NOT EXISTS /' "$backup/accounts.raw.sql" \
+    > "$backup/accounts.sql" || return 1
+  # Keep bootstrap root privileges until portable grants have been restored.
+  sed -n 's/^CREATE USER /ALTER USER /p' "$backup/accounts.raw.sql" \
+    >> "$backup/accounts.sql" || return 1
+  [[ -s "$backup/accounts.sql" ]]
+}
+
+wnmp_update_mariadb() (
+  set -o pipefail
+  local mariadb_version="${1:-}" old_version backup='' stage='' switched=0 committed=0 stopped=0
+  local lock_pid='' lock_in='' lock_out='' ready='' datadir basedir actual
+  local WNMP_MARIADB_SOCKET='' WNMP_MARIADB_PRESERVE_CONFIG=1 WNMP_MARIADB_RESTORE_ACCOUNTS=1
+  local update_lock_fd
+  local -a databases=() config_paths=()
+
+  exec {update_lock_fd}>/run/lock/wnmp-mariadb-update.lock || return 1
+  if ! flock -n "$update_lock_fd"; then
+    echo '[update][ERROR] Another MariaDB update is running. '
+    return 1
+  fi
+  if [[ -e /run/systemd/system/mariadb.service.d/wnmp-update.conf ]]; then
+    echo '[update][ERROR] A previous update left a service override. Check the database and backups first. '
+    return 1
+  fi
+  if ! old_version="$(wnmp_current_mariadb_version)"; then
+    echo '[update][ERROR] Cannot connect to the installed MariaDB using local administrative credentials. No update was made.'
+    return 1
+  fi
+  echo "[update] Current MariaDB version: ${old_version}"
+  if [[ -z "$mariadb_version" ]]; then
+    wnmp_choose_mariadb_version update || return 1
+    [[ "$mariadb_version" != 0 ]] || return 0
+  fi
+  wnmp_validate_mariadb_version "$mariadb_version" || return 1
+  datadir="$(wnmp_mariadb_sql 'SELECT @@datadir')" || return 1
+  basedir="$(wnmp_mariadb_sql 'SELECT @@basedir')" || return 1
+  if [[ "${datadir%/}" != /home/mariadb || "${basedir%/}" != /usr/local/mariadb || \
+        -L /home/mariadb || -L /usr/local/mariadb || -L /usr/local/mroonga ]]; then
+    echo '[update][ERROR] This update requires the standard WNMP program and data directories. The database is unchanged.'
+    return 1
+  fi
+  if [[ ! -f /etc/my.cnf ]] || ! pkg-config --exists 'groonga >= 11.0.0'; then
+    echo '[update][ERROR] WNMP configuration or the Groonga dependency is missing. The database is unchanged.'
+    return 1
+  fi
+  wnmp_prepare_mariadb_archive "$mariadb_version" || return 1
+  wnmp_install_build_deps || return 1
+  stage="$(mktemp -d "$WNMPDIR/.mariadb-stage.XXXXXX")" || return 1
+
+  _wnmp_mariadb_unlock() {
+    if [[ -n "$lock_in" ]]; then exec {lock_in}>&-; lock_in=''; fi
+    if [[ -n "$lock_out" ]]; then exec {lock_out}<&-; lock_out=''; fi
+    if [[ -n "$lock_pid" ]]; then kill "$lock_pid" 2>/dev/null || true; wait "$lock_pid" 2>/dev/null || true; lock_pid=''; fi
+  }
+  _wnmp_mariadb_cleanup() {
+    local status="$1"
+    _wnmp_mariadb_unlock
+    if [[ "$switched" == 1 && "$committed" != 1 ]]; then
+      echo "[update][ERROR] Update failed; restoring the previous version. Backup: ${backup}"
+      if systemctl stop mariadb; then
+        rm -rf /usr/local/mariadb /home/mariadb /usr/local/mroonga
+        cp -a "$backup/program" /usr/local/mariadb && \
+          cp -a "$backup/data" /home/mariadb && \
+          { [[ ! -d "$backup/mroonga" ]] || cp -a "$backup/mroonga" /usr/local/mroonga; } && \
+          tar -xzf "$backup/config.tar.gz" -C / && \
+          rm -f /run/systemd/system/mariadb.service.d/wnmp-update.conf && \
+          systemctl daemon-reload && systemctl start mariadb || \
+          echo "[update][ERROR] Automatic recovery failed. Restore manually from: ${backup}"
+      else
+        echo "[update][ERROR] Cannot stop the database. Data and backups are retained; restore manually from: ${backup}"
+      fi
+    elif [[ "$stopped" == 1 && "$committed" != 1 ]]; then
+      rm -f /run/systemd/system/mariadb.service.d/wnmp-update.conf
+      systemctl daemon-reload || true
+      systemctl start mariadb || true
+    fi
+    [[ -z "$stage" ]] || rm -rf -- "$stage"
+    return "$status"
+  }
+  trap '_wnmp_mariadb_cleanup $?' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  wnmp_build_mariadb "$mariadb_version" "$stage" || return 1
+
+  mkdir -p /home/wnmp-backups/mariadb || return 1
+  backup="$(mktemp -d "/home/wnmp-backups/mariadb/$(date +%Y%m%d_%H%M%S).XXXXXX")" || return 1
+  chmod 700 "$backup" || return 1
+  printf 'old_version=%s\ntarget_version=%s\n' "$old_version" "$mariadb_version" > "$backup/versions.txt" || return 1
+  for actual in etc/my.cnf etc/mysql root/.my.cnf etc/systemd/system/mariadb.service etc/init.d/mariadb; do
+    [[ ! -e "/$actual" ]] || config_paths+=("$actual")
+  done
+  tar -czf "$backup/config.tar.gz" -C / "${config_paths[@]}" || return 1
+  cp -a /usr/local/mariadb "$backup/program" || return 1
+  if [[ -d /usr/local/mroonga ]]; then cp -a /usr/local/mroonga "$backup/mroonga" || return 1; fi
+
+  # A persistent global read lock covers both nontransactional Mroonga tables
+  # and account metadata until all dumps finish and the old server is stopped.
+  coproc WNMP_MARIADB_LOCK { exec /usr/local/mariadb/bin/mariadb --user=root --protocol=SOCKET --connect-timeout=5 --batch --skip-column-names --unbuffered --skip-reconnect; }
+  lock_pid="$WNMP_MARIADB_LOCK_PID"
+  exec {lock_in}>&"${WNMP_MARIADB_LOCK[1]}"
+  exec {lock_out}<&"${WNMP_MARIADB_LOCK[0]}"
+  printf "FLUSH TABLES WITH READ LOCK;\nSELECT CONCAT('WNMP_BACKUP_LOCKED:', CONNECTION_ID());\n" >&"$lock_in" || return 1
+  if ! read -r -t 60 ready <&"$lock_out" || [[ "$ready" != WNMP_BACKUP_LOCKED:* ]]; then
+    echo '[backup][ERROR] Cannot lock the database. The update was cancelled.'
+    return 1
+  fi
+  echo "[backup] Backing up all databases, accounts, grants, routines and events: ${backup}/all-databases.sql.gz"
+  if ! wnmp_mariadb_dump \
+    --all-databases --routines --events --triggers --hex-blob --skip-lock-tables \
+    --default-character-set=utf8mb4 | gzip -c > "$backup/all-databases.sql.gz"; then
+    echo '[backup][ERROR] The full database backup failed. The update was cancelled.'
+    return 1
+  fi
+  gzip -t "$backup/all-databases.sql.gz" || return 1
+  wnmp_export_mariadb_accounts "$backup" || return 1
+  wnmp_mariadb_sql "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY SCHEMA_NAME" > "$backup/databases.txt" || return 1
+  mapfile -t databases < "$backup/databases.txt" || return 1
+  if (( ${#databases[@]} )); then
+    wnmp_mariadb_dump \
+      --databases "${databases[@]}" --routines --events --triggers --hex-blob \
+      --skip-lock-tables --default-character-set=utf8mb4 | gzip -c > "$backup/databases.sql.gz" || return 1
+    gzip -t "$backup/databases.sql.gz" || return 1
+  fi
+  printf "SELECT CONCAT('WNMP_BACKUP_LOCKED:', CONNECTION_ID());\n" >&"$lock_in" || return 1
+  if ! read -r -t 10 actual <&"$lock_out" || [[ "$actual" != "$ready" ]]; then
+    echo '[backup][ERROR] The backup lock connection was lost. The update was cancelled.'
+    return 1
+  fi
+  stopped=1
+  systemctl stop mariadb || return 1
+  _wnmp_mariadb_unlock
+  cp -a /home/mariadb "$backup/data" || return 1
+  printf '%s\n' 'backup_complete' > "$backup/backup-complete" || return 1
+  echo "[backup] Database and program backups completed: ${backup}"
+
+  # Keep the new server inaccessible to applications throughout restoration.
+  mkdir -p /run/systemd/system/mariadb.service.d || return 1
+  cat > /run/systemd/system/mariadb.service.d/wnmp-update.conf <<'UNIT' || return 1
+[Service]
+RuntimeDirectory=wnmp-mariadb-update
+RuntimeDirectoryMode=0700
+ExecStart=
+ExecStart=/usr/local/mariadb/bin/mariadbd --defaults-file=/etc/my.cnf --skip-networking --event-scheduler=OFF --socket=/run/wnmp-mariadb-update/mariadb.sock
+UNIT
+  WNMP_MARIADB_SOCKET=/run/wnmp-mariadb-update/mariadb.sock
+  switched=1
+  rm -rf /usr/local/mariadb /home/mariadb /usr/local/mroonga || return 1
+  mv "$stage/usr/local/mariadb" /usr/local/mariadb || return 1
+  wnmp_initialize_mariadb || return 1
+  WNMP_REUSE_GROONGA=1 install_mroonga || return 1
+  wnmp_wait_mariadb || return 1
+  wnmp_mariadb_sql "DROP USER IF EXISTS ''@'localhost'; DROP DATABASE IF EXISTS test;" >/dev/null || return 1
+  wnmp_verify_mariadb_install "$mariadb_version" || return 1
+  if [[ -s "$backup/databases.sql.gz" ]]; then
+    gzip -dc "$backup/databases.sql.gz" | wnmp_mariadb_client || return 1
+  fi
+  wnmp_mariadb_client --skip-print-query-on-error < "$backup/accounts.sql" || return 1
+  wnmp_verify_mariadb_install "$mariadb_version" || return 1
+  /usr/local/mariadb/bin/mariadb-check --user=root --protocol=SOCKET \
+    --socket="$WNMP_MARIADB_SOCKET" --all-databases --check-upgrade || return 1
+  rm -f /run/systemd/system/mariadb.service.d/wnmp-update.conf || return 1
+  systemctl daemon-reload || return 1
+  systemctl restart mariadb || return 1
+  WNMP_MARIADB_SOCKET=''
+  wnmp_wait_mariadb || return 1
+  wnmp_verify_mariadb_install "$mariadb_version" || return 1
+  committed=1
+  printf '%s\n' 'restore_complete' > "$backup/restore-complete" || return 1
+  echo "[update] MariaDB ${old_version} -> ${mariadb_version} completed. Data, accounts and grants were restored automatically."
+  echo "[backup] Full backups retained at: ${backup}"
+)
+
+wnmp_wait_mariadb() {
+  local attempt
+  for attempt in {1..120}; do
+    if wnmp_mariadb_sql 'SELECT 1' >/dev/null 2>&1; then return 0; fi
+    sleep 0.5
+  done
+  echo '[mariadb][ERROR] Database startup verification failed.'
+  journalctl -u mariadb --no-pager -n 40 || true
+  return 1
+}
+
+wnmp_install_mariadb() (
+  local mariadb_version="$1" stage
+  set -o pipefail
+  if [[ -x /usr/local/mariadb/bin/mariadbd ]]; then
+    wnmp_update_mariadb "$mariadb_version" || return 1
+    wnmp_apply_mysql_password || return 1
+    return 0
+  fi
+  wnmp_prepare_mariadb_archive "$mariadb_version" || return 1
+  stage="$(mktemp -d "$WNMPDIR/.mariadb-stage.XXXXXX")" || return 1
+  trap 'rm -rf -- "$stage"' EXIT
+  wnmp_build_mariadb "$mariadb_version" "$stage" || return 1
+  purge_mariadb || return 1
+  mv "$stage/usr/local/mariadb" /usr/local/mariadb || return 1
+  wnmp_initialize_mariadb || return 1
+  install_mroonga || return 1
+  wnmp_wait_mariadb || return 1
+  wnmp_verify_mariadb_install "$mariadb_version" || return 1
+  echo "[mariadb] MariaDB ${mariadb_version} and Mroonga installation and version verification completed."
+)
+
+wnmp_build_mariadb() {
+  local version="$1" stage="$2" source="$WNMPDIR/mariadb-$1" actual
+  rm -rf -- "$source" || return 1
+  tar -zxf "$WNMPDIR/mariadb-${version}.tar.gz" -C "$WNMPDIR" || return 1
+  mkdir -p "$source/build" || return 1
+  cd "$source/build" || return 1
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb \
+    -DMYSQL_DATADIR=/home/mariadb \
+    -DMYSQL_UNIX_ADDR=/run/mariadb/mariadb.sock \
+    -DWITH_INNOBASE_STORAGE_ENGINE=1 \
+    -DWITH_ARCHIVE_STORAGE_ENGINE=0 \
+    -DWITH_BLACKHOLE_STORAGE_ENGINE=0 \
+    -DWITH_READLINE=1 \
+    -DWITH_SSL=system \
+    -DWITH_ZLIB=system \
+    -DWITH_LIBWRAP=0 \
+    -DDEFAULT_CHARSET=utf8mb4 \
+    -DDEFAULT_COLLATION=utf8mb4_general_ci \
+    -DPLUGIN_CONNECT=NO \
+    -DPLUGIN_ROCKSDB=NO \
+    -DPLUGIN_SPIDER=NO \
+    -DPLUGIN_COLUMNSTORE=NO \
+    -DWITH_GROONGA=OFF \
+    -DWITHOUT_GROONGA=ON \
+    -DWITH_MROONGA=OFF \
+    -DPLUGIN_MROONGA=NO || return 1
+  cmake --build . --parallel "${JOBS}" || return 1
+  DESTDIR="$stage" cmake --install . || return 1
+  actual="$("$stage/usr/local/mariadb/bin/mariadbd" --no-defaults --version)" || return 1
+  actual="$(printf '%s\n' "$actual" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+  if [[ "$actual" != "$version" ]]; then
+    echo "[mariadb][ERROR] The built version does not match: ${actual} / ${version}"
+    return 1
+  fi
+}
+
+wnmp_initialize_mariadb() {
+  ensure_mariadb_debian_compat_config || return 1
+  ensure_group mariadb || return 1
+  ensure_user mariadb mariadb || return 1
+  mkdir -p /home/mariadb/binlog || return 1
+  chown -R mariadb:mariadb /home/mariadb || return 1
+  cp /usr/local/mariadb/support-files/mysql.server /etc/init.d/mariadb || return 1
+  chmod 755 /etc/init.d/mariadb || return 1
+
+if [[ "${WNMP_MARIADB_PRESERVE_CONFIG:-0}" != 1 ]]; then
+cat > /etc/my.cnf <<'EOF' || return 1
+[client]
+port   = 3306
+socket = /run/mariadb/mariadb.sock
+default-character-set = utf8mb4
+[mysql]
+no-auto-rehash
+default-character-set = utf8mb4
+[mysqld]
+user      = mariadb
+basedir   = /usr/local/mariadb
+datadir   = /home/mariadb
+pid-file  = /run/mariadb/mariadb.pid
+socket    = /run/mariadb/mariadb.sock
+port      = 3306
+skip-name-resolve
+log_error = /home/mariadb/mariadb.err
+server-id = 1
+log-bin   = /home/mariadb/binlog/mysql-bin
+binlog_format = row
+expire_logs_days = 3
+sync_binlog = 1
+character-set-server = utf8mb4
+collation-server     = utf8mb4_unicode_ci
+skip-character-set-client-handshake
+init_connect='SET NAMES utf8mb4'
+sql-mode = NO_ENGINE_SUBSTITUTION
+performance_schema = OFF
+event_scheduler    = OFF
+max_connections    = 300
+max_connect_errors = 1000
+back_log           = 1024
+thread_cache_size  = 256
+wait_timeout        = 3600
+interactive_timeout = 3600
+default_storage_engine = InnoDB
+innodb_file_per_table  = 1
+innodb_buffer_pool_size      = 256M
+innodb_flush_log_at_trx_commit = 2
+innodb_log_file_size   = 256M
+innodb_log_buffer_size = 16M
+innodb_lock_wait_timeout = 60
+innodb_flush_method    = O_DIRECT
+innodb_io_capacity     = 1000
+innodb_io_capacity_max = 2000
+innodb_read_io_threads  = 8
+innodb_write_io_threads = 8
+table_open_cache  = 10000
+open_files_limit  = 200000
+tmp_table_size      = 64M
+max_heap_table_size = 64M
+slow_query_log = 1
+slow_query_log_file = /home/mariadb/slow.log
+long_query_time = 1.0
+log_queries_not_using_indexes = 0
+[mysqldump]
+quick
+max_allowed_packet = 16M
+[myisamchk]
+key_buffer_size = 128M
+sort_buffer_size = 2M
+read_buffer  = 2M
+write_buffer = 2M
+[mysqlhotcopy]
+interactive-timeout
+EOF
+fi
+
+if [[ "${WNMP_MARIADB_PRESERVE_CONFIG:-0}" != 1 ]]; then
+cat > /root/.my.cnf <<'EOF' || return 1
+[client]
+socket=/run/mariadb/mariadb.sock
+port=3306
+default-character-set=utf8mb4
+EOF
+
+chmod 600 /root/.my.cnf || return 1
+fi
+
+if [[ "${WNMP_MARIADB_PRESERVE_CONFIG:-0}" != 1 || ! -f /etc/systemd/system/mariadb.service ]]; then
+cat > /etc/systemd/system/mariadb.service <<'EOF' || return 1
+[Unit]
+Description=MariaDB Server (WNMP)
+After=network.target
+Wants=network.target
+[Service]
+Type=simple
+User=mariadb
+Group=mariadb
+RuntimeDirectory=mariadb
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/mariadb/bin/mariadbd --defaults-file=/etc/my.cnf --bind-address=127.0.0.1
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=200000
+PrivateTmp=false
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
+
+/usr/local/mariadb/scripts/mariadb-install-db --defaults-file=/etc/my.cnf --basedir=/usr/local/mariadb --datadir=/home/mariadb --user=mariadb --skip-test-db || return 1
+
+  systemctl daemon-reload || return 1
+  systemctl enable mariadb >/dev/null 2>&1 || true
+  systemctl start mariadb || return 1
+
+
+  wnmp_wait_mariadb || return 1
+
+  if [[ "${WNMP_MARIADB_RESTORE_ACCOUNTS:-0}" != 1 ]]; then
+  local escaped_password="${MYSQL_PASS//\\/\\\\}"
+  wnmp_mariadb_client --skip-print-query-on-error <<SQL || return 1
+SET SESSION sql_mode = '';
+
+ALTER USER 'root'@'localhost'
+  IDENTIFIED VIA unix_socket
+  OR mysql_native_password USING PASSWORD('${escaped_password}');
+
+DROP USER IF EXISTS ''@'localhost';
+DROP USER IF EXISTS ''@'%';
+
+DROP USER IF EXISTS 'root'@'%';
+DROP USER IF EXISTS 'root'@'127.0.0.1';
+DROP USER IF EXISTS 'root'@'::1';
+
+DROP DATABASE IF EXISTS test;
+
+FLUSH PRIVILEGES;
+SQL
+
+
+  echo '[mariadb] MariaDB initialization completed.'
+  fi
+}
+
 wnmp_update_prepare_proxy() {
   echo "[update] Select proxy tunnel before update..."
   enable_proxy
@@ -5556,7 +6128,7 @@ wnmp_self_update() {
   case "${1:-}" in
     force|--force|-f) force=1 ;;
     ""|self|script|wnmp) ;;
-    *) echo "Usage: wnmp update [nginx|php|force]"; return 1 ;;
+    *) echo "Usage: wnmp update [nginx|php|mariadb|force]"; return 1 ;;
   esac
 
   echo "[update] Checking WNMP script updates..."
@@ -5672,16 +6244,17 @@ wnmp_update() {
       wnmp_self_update "$target"
       return $?
       ;;
-    nginx|php) ;;
-    *) echo "Usage: wnmp update [nginx|php|force]"; return 1 ;;
+    nginx|php|mariadb) ;;
+    *) echo "Usage: wnmp update [nginx|php|mariadb|force]"; return 1 ;;
   esac
 
   trap 'wnmp_update_cleanup_proxy' EXIT
-  wnmp_update_prepare_proxy
+  wnmp_update_prepare_proxy || return 1
 
   case "$target" in
     nginx) wnmp_update_nginx ;;
     php) wnmp_update_php ;;
+    mariadb) wnmp_update_mariadb ;;
   esac
 }
 cf() {
@@ -6347,6 +6920,7 @@ for arg in "$@"; do
      -h|--help|help) usage; exit 0 ;;
      restart) restart; exit 0 ;;
      status) status; exit 0 ;;
+     mysqlpass) wnmp_change_mysql_password; exit $? ;;
      update) shift; if wnmp_update "${1:-}"; then exit 0; else exit 1; fi ;;
      webdav) shift; if webdav "${1:-}"; then exit 0; else exit 1; fi ;;
      proxy|reverse-proxy)
@@ -6510,16 +7084,7 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
 fi
 
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "mariadb" ]]; then
-  echo "Please select the MariaDB version.:"
-  select mariadbselcect in "Do not install MariaDB" "1GB RAM 10.6" "2GB RAM 10.11" "4GB RAM 11.8.5"; do
-    case $mariadbselcect in
-      "Do not install MariaDB") mariadb_version='0'; break ;;
-      "1GB RAM 10.6") mariadb_version='10.6.24'; break ;;
-      "2GB RAM 10.11") mariadb_version='10.11.15'; break ;;
-      "4GB RAM 11.8.5") mariadb_version='11.8.5'; break ;;
-      *) echo "Invalid option $REPLY";;
-    esac
-  done
+  wnmp_choose_mariadb_version install || exit 1
 fi
 
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
@@ -6531,9 +7096,6 @@ if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
   wnmp_prompt_phpmyadmin_password || exit 1
 fi
 
-if [ "$mariadb_version" != "0" ]; then
-  wnmp_prompt_mysql_password || exit 1
-fi
 choosenginx='n'
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" ]]; then
   read -rp "Is NGINX installed?(y/n): " choosenginx
@@ -6567,7 +7129,7 @@ apt install -y libtool automake make gcc net-tools libc-ares-dev apache2-utils g
   libzstd-dev wget curl m4 autoconf re2c pkg-config libxml2-dev libsodium-dev libcurl4-openssl-dev \
   libbz2-dev openssl libssl-dev libtidy-dev libxslt1-dev libsqlite3-dev zlib1g-dev \
   libpng-dev libjpeg-dev libwebp-dev libonig-dev libzip-dev libpcre2-8-0 libpcre2-dev \
-  cmake bison libncurses-dev libfreetype-dev unzip
+  cmake ninja-build bison libncurses-dev libfreetype-dev unzip
   
 git config --global http.version HTTP/1.1 || true
 export CURL_HTTP_VERSION=1.1
@@ -8078,240 +8640,11 @@ fi
 esac
 
 if [ "$mariadb_version" != "0" ]; then
-  purge_mariadb || true
-  ensure_mariadb_debian_compat_config
-
-  cd "$WNMPDIR"
-
-  ensure_group mariadb
-  ensure_user  mariadb mariadb
-  mkdir -p /home/mariadb
-  mkdir -p /home/mariadb/binlog
-  chown -R mariadb:mariadb /home/mariadb
-
-
-  if [ ! -f "$WNMPDIR/mariadb-$mariadb_version.tar.gz" ]; then
-    rm -rf "mariadb-$mariadb_version"
-   download_with_mirrors "https://archive.mariadb.org/mariadb-$mariadb_version/source/mariadb-$mariadb_version.tar.gz" "$WNMPDIR/mariadb-$mariadb_version.tar.gz"
-    
-  fi
-
-  tar zxvf "mariadb-$mariadb_version.tar.gz"
-
-  cd "mariadb-$mariadb_version"
- 
-  rm -rf build
-  
-  mkdir build && cd build
-
-  export LDFLAGS="-Wl,--as-needed -Wl,--no-keep-memory"
-
-  # ColumnStore is not used by WNMP and its legacy CMake files fail with CMake 4.
-  cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb \
-    -DMYSQL_DATADIR=/home/mariadb \
-    -DMYSQL_UNIX_ADDR=/run/mariadb/mariadb.sock \
-    -DWITH_INNOBASE_STORAGE_ENGINE=1 \
-    -DWITH_ARCHIVE_STORAGE_ENGINE=0 \
-    -DWITH_BLACKHOLE_STORAGE_ENGINE=0 \
-    -DWITH_READLINE=1 \
-    -DWITH_SSL=system \
-    -DWITH_ZLIB=system \
-    -DWITH_LIBWRAP=0 \
-    -DDEFAULT_CHARSET=utf8mb4 \
-    -DDEFAULT_COLLATION=utf8mb4_general_ci \
-    -DPLUGIN_CONNECT=NO \
-    -DPLUGIN_ROCKSDB=NO \
-    -DPLUGIN_SPIDER=NO \
-    -DPLUGIN_COLUMNSTORE=NO \
-    -DWITH_GROONGA=OFF \
-    -DWITHOUT_GROONGA=ON \
-    -DWITH_MROONGA=OFF \
-    -DPLUGIN_MROONGA=NO
-  make -j${JOBS}
-  make install
-
-  cp /usr/local/mariadb/support-files/mysql.server /etc/init.d/mariadb
-  chmod 755 /etc/init.d/mariadb
-
-cat > /etc/my.cnf <<'EOF' 
-[client]
-port   = 3306
-socket = /run/mariadb/mariadb.sock
-default-character-set = utf8mb4
-[mysql]
-no-auto-rehash
-default-character-set = utf8mb4
-[mysqld]
-user      = mariadb
-basedir   = /usr/local/mariadb
-datadir   = /home/mariadb
-pid-file  = /run/mariadb/mariadb.pid
-socket    = /run/mariadb/mariadb.sock
-port      = 3306
-skip-name-resolve
-log_error = /home/mariadb/mariadb.err
-server-id = 1
-log-bin   = /home/mariadb/binlog/mysql-bin
-binlog_format = row
-expire_logs_days = 3
-sync_binlog = 1
-character-set-server = utf8mb4
-collation-server     = utf8mb4_unicode_ci
-skip-character-set-client-handshake
-init_connect='SET NAMES utf8mb4'
-sql-mode = NO_ENGINE_SUBSTITUTION
-performance_schema = OFF
-event_scheduler    = OFF
-max_connections    = 300
-max_connect_errors = 1000
-back_log           = 1024
-thread_cache_size  = 256
-wait_timeout        = 3600
-interactive_timeout = 3600
-default_storage_engine = InnoDB
-innodb_file_per_table  = 1
-innodb_buffer_pool_size      = 256M
-innodb_flush_log_at_trx_commit = 2
-innodb_log_file_size   = 256M
-innodb_log_buffer_size = 16M
-innodb_lock_wait_timeout = 60
-innodb_flush_method    = O_DIRECT
-innodb_io_capacity     = 1000
-innodb_io_capacity_max = 2000
-innodb_read_io_threads  = 8
-innodb_write_io_threads = 8
-table_open_cache  = 10000
-open_files_limit  = 200000
-tmp_table_size      = 64M
-max_heap_table_size = 64M
-slow_query_log = 1
-slow_query_log_file = /home/mariadb/slow.log
-long_query_time = 1.0
-log_queries_not_using_indexes = 0
-[mysqldump]
-quick
-max_allowed_packet = 16M
-[myisamchk]
-key_buffer_size = 128M
-sort_buffer_size = 2M
-read_buffer  = 2M
-write_buffer = 2M
-[mysqlhotcopy]
-interactive-timeout
-EOF
-
-cat > /root/.my.cnf <<'EOF'
-[client]
-socket=/run/mariadb/mariadb.sock
-port=3306
-default-character-set=utf8mb4
-EOF
-
-chmod 600 /root/.my.cnf
-
-cat > /etc/systemd/system/mariadb.service <<'EOF' 
-[Unit]
-Description=MariaDB Server (WNMP)
-After=network.target
-Wants=network.target
-[Service]
-Type=simple
-User=mariadb
-Group=mariadb
-RuntimeDirectory=mariadb
-RuntimeDirectoryMode=0755
-ExecStart=/usr/local/mariadb/bin/mariadbd --defaults-file=/etc/my.cnf --bind-address=127.0.0.1
-KillMode=process
-KillSignal=SIGTERM
-TimeoutStopSec=120
-Restart=on-failure
-RestartSec=2
-LimitNOFILE=200000
-PrivateTmp=false
-[Install]
-WantedBy=multi-user.target
-EOF
-
-/usr/local/mariadb/scripts/mariadb-install-db --defaults-file=/etc/my.cnf --basedir=/usr/local/mariadb --datadir=/home/mariadb --user=mariadb
-
-  systemctl daemon-reload
-  systemctl enable mariadb >/dev/null 2>&1 || true
-  systemctl start mariadb
-
-
-  SOCK="/run/mariadb/mariadb.sock"
-
-
-  if [ -f /etc/my.cnf ]; then
-    _sock_from_cnf="$(awk -F= '
-      BEGIN{sec=""}
-      /^\[/{sec=$0}
-      sec=="[client]" && $1 ~ /^[ \t]*socket[ \t]*$/ {gsub(/[ \t]/,"",$2); print $2; exit}
-    ' /etc/my.cnf 2>/dev/null)"
-    [ -n "$_sock_from_cnf" ] && SOCK="$_sock_from_cnf"
-  fi
-
-  for i in {1..80}; do
-    [ -S "$SOCK" ] && break
-    sleep 0.25
-  done
-
-  if [ ! -S "$SOCK" ]; then
-    echo "[setup][ERROR] MariaDB socket not ready: $SOCK"
-    echo "---- systemctl status mariadb ----"
-    systemctl status mariadb --no-pager -l || true
-    echo "---- journalctl -u mariadb (last 120 lines) ----"
-    journalctl -u mariadb -b --no-pager -n 120 || true
-    exit 1
-  fi
-
-
-  /usr/local/mariadb/bin/mariadb-admin --protocol=SOCKET --socket="$SOCK" -uroot ping >/dev/null 2>&1 || {
-    echo "[setup][ERROR] mariadb-admin ping failed (socket=$SOCK)"
-    systemctl status mariadb --no-pager -l || true
-    journalctl -u mariadb -b --no-pager -n 120 || true
-    exit 1
-  }
-
-  cd .. || exit 1
-  set +H
-
-
-  /usr/local/mariadb/bin/mariadb -uroot --protocol=SOCKET --socket="$SOCK" <<SQL
-
-ALTER USER 'root'@'localhost'
-  IDENTIFIED VIA unix_socket
-  OR mysql_native_password USING PASSWORD('${MYSQL_PASS}');
-
-DROP USER IF EXISTS ''@'localhost';
-DROP USER IF EXISTS ''@'%';
-
-DROP USER IF EXISTS 'root'@'%';
-DROP USER IF EXISTS 'root'@'127.0.0.1';
-DROP USER IF EXISTS 'root'@'::1';
-
-DROP DATABASE IF EXISTS test;
-
-FLUSH PRIVILEGES;
-SQL
-
- 
-  if [ $? -ne 0 ]; then
-    echo "[setup][ERROR] mariadb init SQL failed"
-    exit 1
-  fi
-
-  echo -e "\nMariaDB initialization completed. Root password: \033[1;32m${MYSQL_PASS}\033[0m"
-
-
-  cd "$WNMPDIR"
-  install_mroonga
-
+  wnmp_install_mariadb "$mariadb_version" || exit 1
 else
-  echo "Do not install MariaDB"
+  echo "Skipping MariaDB installation"
 fi
+
 
 if [[ "$phpmyadmin_install" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
   wnmp_install_phpmyadmin || exit 1

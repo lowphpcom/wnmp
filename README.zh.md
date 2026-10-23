@@ -39,6 +39,8 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 
 ## 更新记录
 
+v1.69 2026-10-23 菜单 11 组件更新新增 MariaDB 升级和降级（wnmp update mariadb）。全新安装与更新统一提供 MariaDB 10.11、11.4、11.8、12.3，默认完整版本分别为 10.11.19、11.4.13、11.8.9、12.3.3。超出 Mroonga 兼容系列、版本号不完整或与所选系列不一致、源码包无效时友好提示并中止；MariaDB 12.3 要求 Mroonga 16.12 或更新版本，并检查 Mroonga 源码包缓存。更新使用现有本地管理凭据，不再要求输入 root 密码；停库前编译并核验目标版本，在 /home/wnmp-backups/mariadb/ 保留全库 SQL、程序、配置及停库后的数据目录备份。恢复期间暂停数据库访问，使用目标版本初始化的系统表，自动恢复业务数据库、存储过程、事件、触发器、账户、角色和权限，失败时尝试恢复旧版本。自定义时区表、复制配置和第三方插件/UDF 等额外系统元数据需要单独迁移；Mroonga 会自动重编译。菜单 20 新增修改 root 密码（wnmp mysqlpass），隐藏输入并二次确认，保留本地 socket 认证；全新安装仍要求设置 root 密码。同步中英文脚本及文档。
+
 v1.68 2026-10-22 Nginx 全新安装和 wnmp update nginx 的默认版本更新为 1.31.8。完善全新安装及备份恢复后的 PHP 安全配置：memory_limit = -1、post_max_size = 32M，单文件上传上限为 16M，保留已有更小限制。仅 PHP 8.5 设置 fatal_error_backtraces = 0。保留已有会话参数及其他自定义配置，仅幂等补齐缺失的 session.upload_progress.enabled = 0 和 session.use_strict_mode = 1。PHP-FPM 在管理层强制应用内存、POST 限制及 PHP 8.5 回溯设置，组件升级后检查 worker 重启状态。生成的 Nginx 默认站点、HTTP/HTTPS 站点及反向代理配置统一使用 client_max_body_size 32M。新 PHP 模板移除已弃用的会话 ID 调整及 E_STRICT 默认配置。这些措施作为升级到已修复 PHP 版本的补充。
 
 v1.67 2026-10-21 更新 PHP 版本至 8.5.12、8.4.27、8.3.36 和 8.2.35。这些 PHP 紧急安全更新修复了两个可能导致未经身份验证的远程代码执行的严重漏洞，强烈建议所有 PHP 用户立即更新。
@@ -212,9 +214,17 @@ bash wnmp.sh
 | 重启所有服务 | `wnmp restart` |
 | 升级 Nginx | `wnmp update nginx` # 下一步输入目标 Nginx 版本号；已安装 phpMyAdmin 时会要求输入访问密码 |
 | 升级 PHP | `wnmp update php` # 下一步输入目标 PHP 版本号 |
+| 升级或降级 MariaDB | `wnmp update mariadb` # 全库备份后自动恢复数据、账户和权限 |
+| 修改 MariaDB root 密码 | 菜单 20 或 `wnmp mysqlpass` # 隐藏输入并二次确认，保留本地 socket 认证 |
 | 清理 | `wnmp remove` / `wnmp renginx` / `wnmp rephp` / `wnmp remariadb` / `wnmp rephpmyadmin` |
 | SSL续签 | `wnmp sshcheck` / `wnmp sshtest` |
 ---
+
+MariaDB 全新安装和菜单 11 的组件更新统一提供 10.11、11.4、11.8、12.3，默认完整版本分别为 10.11.19、11.4.13、11.8.9、12.3.3。先选择系列，再输入完整版本号或回车使用默认值。超出当前 Mroonga 兼容系列时会提示并退出；12.3 要求 Mroonga 16.12 或更新版本，脚本会检查源码包缓存。
+
+全新安装要求设置 root 密码。更新使用现有本地管理凭据，不再要求输入密码；凭据不可用或备份失败时中止。更新前保存全库 SQL、程序、配置和停库后的数据目录，备份位于 `/home/wnmp-backups/mariadb/`。目标版本重新初始化系统表，再自动导入业务数据库、存储过程、事件、账户、角色和权限；恢复期间暂停数据库访问，失败时尝试恢复旧版本。跨版本降级遇到目标版本不支持的 SQL 或配置时会触发恢复，不直接复用新版数据文件。
+
+`mysql` 中额外定制的系统元数据（如时区表、复制配置或第三方插件/UDF）保留在完整备份中，需要单独迁移；Mroonga 会自动重新编译安装。
 
 ## 🌐 可选页脚标识
 
