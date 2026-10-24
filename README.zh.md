@@ -299,6 +299,11 @@ EOF
 ```
 
 ```bash
+mv /etc/apt/sources.list.d/0000debian.sources \
+   /etc/apt/sources.list.d/0000debian.sources.disabled
+```
+
+```bash
 cd /root && apt update && apt install -y curl
 curl -fL https://wnmp.org/zh/wnmp.sh -o wnmp.sh
 chmod +x wnmp.sh
