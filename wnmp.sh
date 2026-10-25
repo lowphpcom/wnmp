@@ -5693,6 +5693,44 @@ wnmp_export_mariadb_accounts() {
   [[ -s "$backup/accounts.sql" ]]
 }
 
+# Old MariaDB releases can leave an anonymous global_priv row that is visible
+# to mariadb-dump but cannot be resolved by SHOW CREATE USER. Such a row is
+# unusable and aborts an otherwise valid account backup. Preserve its raw
+# metadata, remove only the broken anonymous account, and leave all other
+# accounts untouched.
+wnmp_cleanup_mariadb_orphan_anonymous_accounts() {
+  local backup="$1" hosts_text host escaped_host remaining raw_file="$1/orphan-anonymous-accounts.tsv"
+  local -a hosts=()
+  hosts_text="$(wnmp_mariadb_sql "SELECT Host FROM mysql.global_priv WHERE User='' AND Host=@@hostname AND @@skip_name_resolve=1 ORDER BY Host")" || return 1
+  mapfile -t hosts <<< "$hosts_text"
+  for host in "${hosts[@]}"; do
+    [[ -n "$host" ]] || continue
+    escaped_host="${host//\\/\\\\}"
+    escaped_host="${escaped_host//\'/\'\'}"
+    if wnmp_mariadb_client --skip-print-query-on-error \
+      -e "SHOW CREATE USER ''@'${escaped_host}'" >/dev/null 2>&1; then
+      continue
+    fi
+    wnmp_mariadb_sql "SELECT User, Host, Priv FROM mysql.global_priv WHERE User='' AND Host='${escaped_host}'" \
+      >> "$raw_file" || return 1
+    echo "[backup] Removing an unusable anonymous MariaDB account ''@'${host}'; raw metadata: ${raw_file}" >&2
+    wnmp_mariadb_client --skip-print-query-on-error \
+      -e "DROP USER IF EXISTS ''@'${escaped_host}'" >/dev/null 2>&1 || true
+    remaining="$(wnmp_mariadb_sql "SELECT COUNT(*) FROM mysql.global_priv WHERE User='' AND Host='${escaped_host}'")" || return 1
+    if [[ "$remaining" != 0 ]]; then
+      wnmp_mariadb_sql "DELETE FROM mysql.global_priv WHERE User='' AND Host='${escaped_host}'; FLUSH PRIVILEGES" >/dev/null || return 1
+    fi
+    remaining="$(wnmp_mariadb_sql "SELECT COUNT(*) FROM mysql.global_priv WHERE User='' AND Host='${escaped_host}'")" || return 1
+    if [[ "$remaining" != 0 ]]; then
+      echo "[backup][ERROR] Could not remove unusable anonymous account ''@'${host}'." >&2
+      return 1
+    fi
+  done
+  if [[ -s "$raw_file" ]]; then
+    chmod 600 "$raw_file" || return 1
+  fi
+}
+
 wnmp_update_mariadb() (
   set -o pipefail
   local mariadb_version="${1:-}" old_version backup='' stage='' switched=0 committed=0 stopped=0
@@ -5780,6 +5818,7 @@ wnmp_update_mariadb() (
   tar -czf "$backup/config.tar.gz" -C / "${config_paths[@]}" || return 1
   cp -a /usr/local/mariadb "$backup/program" || return 1
   if [[ -d /usr/local/mroonga ]]; then cp -a /usr/local/mroonga "$backup/mroonga" || return 1; fi
+  wnmp_cleanup_mariadb_orphan_anonymous_accounts "$backup" || return 1
 
   # A persistent global read lock covers both nontransactional Mroonga tables
   # and account metadata until all dumps finish and the old server is stopped.
