@@ -35,6 +35,16 @@ These host-level capabilities are often uncontrollable within containers or requ
 ## Recommended Deployment Methods
 Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, or KVM virtual systems running within Proxmox (PVE) to fully leverage its performance tuning and system optimization advantages.
 
+> **Urgent Linux kernel security update: CVE-2026-98432 (CVSS 9.8 / Critical)**
+>
+> This vulnerability affects multiple Linux kernel branches. Immediately install the latest security updates provided by your distribution on every Linux server, including WNMP's official relay servers. Administrators of self-hosted relays must update them immediately. On Debian/Ubuntu, run as root:
+>
+> ```sh
+> apt-get update && apt-get full-upgrade -y && reboot
+> ```
+>
+> After reboot, check the running kernel with `uname -r`. Upstream fixed versions include 5.10.272, 5.15.223, 6.1.190, 6.6.159, 6.12.113, 6.18.56, 7.2.10, and 7.3-rc7. Distributions may backport the patch under different version numbers; follow your distribution's security advisories and verify that updates are installed. For remote servers, ensure console or recovery access before rebooting.
+
 <p style="color:#DC2626;"><strong>Important: site ownership and runtime permissions</strong></p>
 <p style="color:#DC2626;">NGINX and PHP-FPM run as the <code>www:www</code> user and group. If a site directory is owned by another user or group, PHP execution, cache, uploads, or other site operations may fail.</p>
 <p style="color:#DC2626;">After creating or moving a site, replace <code>your-site</code> with the actual directory name and run:</p>
