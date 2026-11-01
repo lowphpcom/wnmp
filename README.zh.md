@@ -327,7 +327,7 @@ chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
-在此电脑任务地址栏定位打开`C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup` # 请用windows登录的真实账号名代替[username]
+按 Win + R 打开运行窗口，输入 shell:startup 回车，进入开机启动目录
 
 新建一个wsl.vbs文件并写入内容：
 ```bash

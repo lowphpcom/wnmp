@@ -321,9 +321,7 @@ chmod +x wnmp.sh
 bash wnmp.sh
 ```
 
-In the taskbar, navigate to and open:
-`C:\Users\[username]\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`
-Replace [username] with your actual Windows login username
+Press Win + R to open the Run window, enter shell:startup and press Enter to enter the startup directory
 
 Create a new wsl.vbs file and add the following content:
 ```bash
