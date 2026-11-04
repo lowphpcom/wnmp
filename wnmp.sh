@@ -1587,6 +1587,7 @@ enable_proxy() {
     "66.187.4.123"
     "152.67.200.38"
   )
+  local SSH_HOST_COUNT="${#SSH_HOSTS[@]}"
 
   local LOCAL_BIND="127.0.0.1"
   local LOCAL_PORT="32000"
@@ -1702,7 +1703,7 @@ EOF
     echo "[proxy][OK] Proxy enabled:$proxy_addr"
   }
 
-  local choice=""
+  local choice="" choice_num=""
 
 
   if [[ -n "$arg_mode" ]]; then
@@ -1720,12 +1721,15 @@ EOF
         echo
         echo "=== Please select proxy mode ==="
         echo "0) Direct connection (without using any proxy)"
-        echo "1) Using proxy nodes: ${SSH_HOSTS[0]}"
-        echo "2) Using proxy nodes: ${SSH_HOSTS[1]}"
-        echo "3) Using proxy nodes: ${SSH_HOSTS[2]}"
-        read -rp "Please enter your selection. (0-3): " choice
-        [[ "$choice" =~ ^[0-3]$ ]] && break
-        echo "[proxy][WARN] Invalid input. Please enter 0-3"
+        for i in "${!SSH_HOSTS[@]}"; do
+          echo "$((i+1))) Using proxy nodes: ${SSH_HOSTS[$i]}"
+        done
+        read -rp "Please enter your selection. (0-${SSH_HOST_COUNT}): " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+          choice_num=$((10#$choice))
+          (( choice_num >= 0 && choice_num <= SSH_HOST_COUNT )) && break
+        fi
+        echo "[proxy][WARN] Invalid input. Please enter 0-${SSH_HOST_COUNT}"
       done
     else
       choice="AUTO"
@@ -1753,15 +1757,20 @@ EOF
 
   local host=""
   case "${choice^^}" in
-    1) host="${SSH_HOSTS[0]}" ;;
-    2) host="${SSH_HOSTS[1]}" ;;
-    3) host="${SSH_HOSTS[2]}" ;;
     AUTO)
      
       ;;
     *)
-    
-      host="$choice"
+      if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        choice_num=$((10#$choice))
+        if (( choice_num >= 1 && choice_num <= SSH_HOST_COUNT )); then
+          host="${SSH_HOSTS[$((choice_num-1))]}"
+        else
+          host="$choice"
+        fi
+      else
+        host="$choice"
+      fi
       ;;
   esac
 

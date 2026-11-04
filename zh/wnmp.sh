@@ -1451,6 +1451,7 @@ enable_proxy() {
     "66.187.4.123"
     "152.67.200.38"
   )
+  local SSH_HOST_COUNT="${#SSH_HOSTS[@]}"
 
   local LOCAL_BIND="127.0.0.1"
   local LOCAL_PORT="32000"
@@ -1566,7 +1567,7 @@ EOF
     echo "[proxy][成功] 代理已启用：$proxy_addr"
   }
 
-  local choice=""
+  local choice="" choice_num=""
 
 
   if [[ -n "$arg_mode" ]]; then
@@ -1584,12 +1585,15 @@ EOF
         echo
         echo "=== 请选择代理模式 ==="
         echo "0) 直连（不使用任何代理）"
-        echo "1) 使用代理节点: ${SSH_HOSTS[0]}"
-        echo "2) 使用代理节点: ${SSH_HOSTS[1]}"
-        echo "3) 使用代理节点: ${SSH_HOSTS[2]}"
-        read -rp "请输入选择 (0-3): " choice
-        [[ "$choice" =~ ^[0-3]$ ]] && break
-        echo "[proxy][警告] 输入无效，请输入 0-3"
+        for i in "${!SSH_HOSTS[@]}"; do
+          echo "$((i+1))) 使用代理节点: ${SSH_HOSTS[$i]}"
+        done
+        read -rp "请输入选择 (0-${SSH_HOST_COUNT}): " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+          choice_num=$((10#$choice))
+          (( choice_num >= 0 && choice_num <= SSH_HOST_COUNT )) && break
+        fi
+        echo "[proxy][警告] 输入无效，请输入 0-${SSH_HOST_COUNT}"
       done
     else
       choice="AUTO"
@@ -1617,15 +1621,20 @@ EOF
 
   local host=""
   case "${choice^^}" in
-    1) host="${SSH_HOSTS[0]}" ;;
-    2) host="${SSH_HOSTS[1]}" ;;
-    3) host="${SSH_HOSTS[2]}" ;;
     AUTO)
      
       ;;
     *)
-    
-      host="$choice"
+      if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        choice_num=$((10#$choice))
+        if (( choice_num >= 1 && choice_num <= SSH_HOST_COUNT )); then
+          host="${SSH_HOSTS[$((choice_num-1))]}"
+        else
+          host="$choice"
+        fi
+      else
+        host="$choice"
+      fi
       ;;
   esac
 
