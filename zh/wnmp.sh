@@ -1763,7 +1763,10 @@ proxy_healthcheck() {
     return 1
   fi
 
-  curl -fsS \
+  # Check the response headers without waiting for a full page download.
+  curl -fsS --head \
+    --noproxy '' \
+    --retry 1 --retry-delay 1 \
     --connect-timeout 5 \
     --max-time "$MAX_TIME" \
     --socks5-hostname "${LOCAL_BIND}:${LOCAL_PORT}" \
