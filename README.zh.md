@@ -369,6 +369,48 @@ hostAddressLoopback=true
 
 ---
 
+## 关于 WSL 性能低下的错误言论解释
+
+**WNMP 推荐生产环境优先使用原生 Linux；需要在 Windows 中运行时，推荐使用 WSL 2，并将网站源码和数据库存放在 Linux 内部的文件系统中。** 选择合适的运行环境与存储位置，比仅凭“Windows”或“虚拟机”的印象判断性能更有意义。
+
+### 1. 为什么优先选择 Linux？
+
+Linux 是主流 Web 服务器平台，Nginx、PHP、MariaDB 以及 WNMP 提供的 Mroonga 全文搜索引擎，在这一生态中有成熟的部署、扩展与维护方案。各组件对 Windows 的支持程度并不相同，提供 Windows 可执行文件，也不代表功能与并发能力完全一致。例如，[Nginx 官方明确说明](https://nginx.org/en/docs/windows.html)其 Windows 版本仍属于 beta，不应期待与 Unix 版本相同的高性能和扩展能力。因此，追求高并发和更直接的系统调优时，WNMP 首选原生 Linux；实际性能仍应结合业务负载测试。
+
+### 2. Windows Server 与授权成本
+
+这里所说的“Windows 服务器”，指运行 Windows Server 服务端版本的服务器。与 Linux 相比，Windows Server 通常涉及额外的商业授权费用，云服务商也可能将授权费包含在实例价格中。请使用合法授权；未授权使用可能违反微软许可条款和服务商规定，并面临停用风险，具体处理取决于服务商政策。启用 WSL 并不会免除 Windows 本身的授权要求。
+
+### 3. WSL 2 的性能关键在于文件放在哪里
+
+WSL 2 基于 Hyper-V 虚拟化技术，在轻量级虚拟机中运行真正的 Linux 内核。它与 Windows 之间的文件互访，是为了方便协作；通过 `/mnt/c`、`/mnt/d` 访问 Windows 盘符时，文件操作会跨越两套文件系统。频繁读取源码、小文件或数据库时，这种跨系统访问可能成为性能瓶颈，不能据此断言 WSL 2 本身不适合高并发。
+
+**正确做法是将站点部署在 WSL 2 内部的 Linux 文件系统中，例如 WNMP 默认的 `/home/wwwroot`，数据库也应使用 Linux 内部的数据目录。** 不要将 `/mnt/d/网站目录` 这类 Windows 挂载路径作为追求高性能时的默认存储位置。即使 WSL 2 的虚拟磁盘文件实际保存在 Windows 的 D 盘，只要应用访问的是虚拟磁盘内部的 Linux 文件系统，也不同于通过 `/mnt/d` 读写 Windows 文件。[微软官方同样建议](https://learn.microsoft.com/zh-cn/windows/wsl/filesystems)：使用 Linux 工具时，将项目文件保存在 Linux 文件系统中，以获得更好的性能。
+
+### 4. 通过 SSH 像管理 Linux 服务器一样使用
+
+按照上一项安装教程完成 WNMP 的 WSL 初始化与 SSH 配置后，即可通过 SSH 客户端登录子系统，在 Linux 内部部署源码、安装组件和管理服务，使用习惯与远程 Linux 服务器一致。SSH 提供的是管理入口；Linux 运行环境由 WSL 2 提供，文件系统性能取决于数据存储位置，启用 SSH 本身不会提升磁盘性能。
+
+### 5. 区分系统版本，并持续维护更新
+
+Windows 提供 WSL 功能，不代表所有版本都支持相同能力。Windows 10 的部分版本支持 WSL 2；Windows Server 2019 提供 WSL 1，不支持 WSL 2。建议使用仍在支持周期内的 Windows 11，或已更新且支持 WSL 2 的 Windows Server 2022 / 2025，并确认硬件虚拟化可用；若 Windows 本身运行在云主机或虚拟机中，还需确认平台支持嵌套虚拟化。具体安装条件见[微软的 Windows Server 安装说明](https://learn.microsoft.com/zh-cn/windows/wsl/install-on-server)。
+
+请正常维护 Windows、WSL、Linux 发行版和各组件的安全更新，不建议使用会禁用必要组件或长期屏蔽安全更新的精简系统。WSL 自身也在持续更新，可通过 `wsl --update` 更新；生产环境应结合维护窗口验证后升级。
+
+### 6. 本机、局域网和公网如何访问？
+
+在服务已启动、监听地址正确、对应端口无冲突且本机转发正常的情况下，Windows 本机通常可通过 `127.0.0.1:服务端口` 访问 WSL 服务，例如 SSH 使用 `127.0.0.1:22`。这属于对应端口的访问转发，并不是启用 WSL 后将整个 `127.0.0.1` 地址自动重定向给 Linux。
+
+局域网访问取决于网络模式：WSL 2 默认的 NAT 模式通常需要配置端口转发；在支持镜像网络的 Windows 11 22H2 及以上系统中，可按上一项教程配置镜像网络，并允许 Windows / Hyper-V 防火墙的相应入站端口，之后通过 Windows 主机的局域网 IP 访问。服务也必须监听可接受外部连接的地址。
+
+公网访问可使用 Windows 主机对外提供服务的公网 IP，但需要打通从公网到 WSL 服务的访问路径，包括云安全组、宿主机防火墙，以及适用时的路由器端口映射或 NAT 转发。** 启用 WSL 不等于自动开放公网访问。** 不同版本和网络模式的差异，请参阅[微软 WSL 网络说明](https://learn.microsoft.com/zh-cn/windows/wsl/networking)。
+
+### 补充：CJK 是什么？
+
+CJK 是 Chinese、Japanese、Korean 的缩写，指中文、日文和韩文。WNMP 提供的 Mroonga 是基于 Groonga 的全文搜索存储引擎，支持这三类语言的全文检索。
+
+---
+
 ## 📖 开源协议
 
 本项目以 **GNU GPLv3** 协议开源，允许在相同协议下使用、修改与再发布。

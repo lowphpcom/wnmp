@@ -359,6 +359,48 @@ Restart your computer again. You can now log into the subsystem using the same L
 
 After restarting the computer, use an SSH client tool to access the subsystem and directly execute wnmp to begin deploying the web environment.
 
+## Clarifying misconceptions about poor WSL performance
+
+**WNMP recommends native Linux for production. When running on Windows, use WSL 2 and keep website source code and database files inside its Linux filesystem.** Choosing the right runtime and storage location is more useful than judging performance by the labels “Windows” or “virtual machine.”
+
+### 1. Why prefer Linux?
+
+Linux is a mainstream platform for web servers, with mature deployment, extension, and maintenance practices for Nginx, PHP, MariaDB, and the Mroonga full-text search engine provided by WNMP. Windows support differs between components; offering Windows executables does not imply identical features or concurrency capabilities. For example, [Nginx explicitly describes its Windows version](https://nginx.org/en/docs/windows.html) as beta and says that high performance and scalability should not be expected. WNMP therefore prefers native Linux for high concurrency and direct system tuning. Measure actual performance against your workload.
+
+### 2. Windows Server and licensing costs
+
+Here, “Windows server” means a server running a Windows Server edition. Compared with Linux, Windows Server generally adds commercial licensing costs, which a cloud provider may include in its instance pricing. Use a valid license: unauthorized use may breach Microsoft’s license terms and the provider’s policies, with possible service suspension depending on the provider. Enabling WSL does not remove the Windows licensing requirement.
+
+### 3. File location is critical to WSL 2 performance
+
+WSL 2 uses Hyper-V virtualization to run a real Linux kernel in a lightweight virtual machine. File access between Windows and Linux is convenient for interoperability, but accessing Windows drives through `/mnt/c` or `/mnt/d` crosses filesystem boundaries. Frequent source-code, small-file, or database operations can make this a bottleneck. Such results alone do not establish that WSL 2 is unsuitable for high concurrency.
+
+**Deploy sites inside the WSL 2 Linux filesystem, such as WNMP’s default `/home/wwwroot`, and keep database data in a Linux directory as well.** A Windows mount such as `/mnt/d/your-site` should not be the default storage choice when optimizing performance. Even if the WSL 2 virtual disk file is physically stored on the Windows D: drive, accessing the Linux filesystem inside that disk is different from accessing Windows files through `/mnt/d`. [Microsoft also recommends](https://learn.microsoft.com/en-us/windows/wsl/filesystems) keeping project files in the Linux filesystem when using Linux tools for better performance.
+
+### 4. Use SSH to manage WSL like a Linux server
+
+After completing WNMP’s WSL initialization and SSH setup in the preceding installation guide, connect with an SSH client to deploy source code, install components, and manage services inside Linux, just as you would on a remote Linux server. SSH provides the management connection; WSL 2 provides the Linux runtime, and storage location affects filesystem performance. Enabling SSH does not itself improve disk performance.
+
+### 5. Check version requirements and maintain updates
+
+Availability of WSL does not mean every Windows version supports the same features. Some Windows 10 versions support WSL 2; Windows Server 2019 provides WSL 1 and does not support WSL 2. Prefer a Windows 11 release that is still supported, or an updated Windows Server 2022 / 2025 system with WSL 2 support. Hardware virtualization must be available; if Windows itself runs in a cloud instance or virtual machine, the platform must also support nested virtualization. See [Microsoft’s Windows Server installation guide](https://learn.microsoft.com/en-us/windows/wsl/install-on-server) for the requirements.
+
+Maintain security updates for Windows, WSL, the Linux distribution, and the installed components. Avoid stripped-down systems that disable required components or indefinitely block security updates. WSL itself continues to receive improvements and can be updated with `wsl --update`. Validate production upgrades during a planned maintenance window.
+
+### 6. How do local, LAN, and public access work?
+
+With the service running, the correct listening address, no conflicting port, and working localhost forwarding, Windows applications can usually reach WSL services at `127.0.0.1:service-port`, such as `127.0.0.1:22` for SSH. This forwards access to individual service ports; enabling WSL does not redirect the entire `127.0.0.1` address to Linux.
+
+LAN access depends on the network mode. WSL 2’s default NAT mode generally requires port forwarding. On Windows 11 22H2 or later with mirrored networking support, configure mirrored mode as described in the preceding guide and allow the required inbound ports through the Windows / Hyper-V firewalls. Services can then be reached through the Windows host’s LAN IP address, provided they listen on an address that accepts external connections.
+
+Public access can use the public IP through which the Windows host serves traffic, but the complete path to the WSL service must be configured, including cloud security groups, host firewalls, and router port mappings or NAT forwarding where applicable. **Enabling WSL does not automatically expose services to the internet.** See [Microsoft’s WSL networking documentation](https://learn.microsoft.com/en-us/windows/wsl/networking) for differences between versions and network modes.
+
+### What does CJK mean?
+
+CJK stands for Chinese, Japanese, and Korean. Mroonga, provided by WNMP, is a Groonga-based full-text search storage engine that supports full-text search in these languages.
+
+---
+
 ## 📖 License
 
 Released under the **GNU General Public License v3.0 (GPLv3)**  
