@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.69
+# Version: 1.70
+# v1.70 2026-11-06 Added SSL menu option 7 and wnmp ssl force-ip [IPv4] to issue or force reissue IP certificates, including recovery after a failed first request without an existing certificate. Initial Nginx installation and IP reissuance now prefer public IPv4 addresses on local interfaces, then query external IP APIs while bypassing proxies, and prompt for a public IPv4 address if detection fails. Detected addresses can be overridden; command arguments or WNMP_PUBLIC_IP support an explicitly configured NAT address. Invalid, private and reserved addresses are rejected instead of requesting a certificate for unknown. Issuance explicitly uses ECC and the Let's Encrypt shortlived profile. Successful recovery verifies certificate validity, IP coverage and key matching, enables HTTPS on the default Nginx site, records the active IP and installs daily renewal. Failed issuance, deployment or Nginx configuration checks restore the previous files and attempt to restore the running service; failed Nginx startup also attempts rollback. Daily renewal can recover missing IP certificates and skips inactive IP records. Certificate checks, daily renewal and IP reissuance automatically clean up the exact invalid unknown_ecc and unknown ACME records, reporting removals. NAT servers still require public TCP port 80 to reach this server. Domain certificate issuance remains unchanged. English and Chinese scripts, documentation, local website pages and release metadata are synchronized.
 # v1.69 2026-10-23 Added MariaDB upgrade/downgrade to component updates in menu 11 (wnmp update mariadb). Fresh installations and updates now share MariaDB series 10.11, 11.4, 11.8 and 12.3, with default complete versions 10.11.19, 11.4.13, 11.8.9 and 12.3.3. MariaDB series outside Mroonga compatibility, incomplete or mismatched versions and invalid source archives are rejected; MariaDB 12.3 requires Mroonga 16.12 or later, and cached Mroonga archives are checked. Updates use existing local administrative credentials without prompting for a root password, compile and verify the target version before stopping the database, and retain full SQL, program, configuration and stopped-server data backups under /home/wnmp-backups/mariadb/. Application databases, routines, events, triggers, accounts, roles and grants are restored automatically into newly initialized system tables while database access is paused; failed updates attempt to restore the previous version. Custom system metadata such as time zone tables, replication settings and third-party plugins/UDFs requires separate migration; Mroonga is rebuilt automatically. Added root password changes in menu 20 (wnmp mysqlpass) with hidden input, confirmation and preserved local socket authentication; fresh installations still require a root password. English and Chinese scripts and documentation are synchronized.
 # v1.68 2026-10-22 Updated the default Nginx version to 1.31.8 for new installations and wnmp update nginx. Completed PHP security configuration for new installations and after restoring a backed-up php.ini: memory_limit = -1, post_max_size = 32M, and an individual upload limit of 16M while preserving smaller limits. Only PHP 8.5 receives fatal_error_backtraces = 0. Existing session settings and unrelated customizations are preserved; missing session.upload_progress.enabled = 0 and session.use_strict_mode = 1 directives are added idempotently. PHP-FPM enforces the memory and POST limits and the PHP 8.5 backtrace setting, and component updates verify worker restart. Generated Nginx default, HTTP/HTTPS site, and reverse-proxy configurations use client_max_body_size 32M. Deprecated session ID tuning and E_STRICT defaults were removed from new PHP templates. These measures supplement upgrading to patched PHP releases.
 # Language channel: en
@@ -69,7 +70,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.69"
+  green  " [init] Version: 1.70"
 green  "============================================================"
 echo
 sleep 1
@@ -102,7 +103,8 @@ Usage:
   wnmp remariadb     # Uninstall MariaDB
   wnmp rephpmyadmin  # Uninstall phpMyAdmin
   wnmp fixsshd       # Self-check and attempt to fix sshd
-  wnmp ssl [rewrite|check|run|force [domain]] # SSL certificate management
+  wnmp ssl [rewrite|check|run|force [domain]|force-ip [IPv4]] # SSL certificate management
+  WNMP_PUBLIC_IP=YOUR_PUBLIC_IPV4 wnmp install nginx # Specify the public IPv4 behind NAT
   wnmp dns [provider] # Configure ACME DNS API credentials (cf, dp, cx, gd, aws, ali, linode, freedns, he, namesilo, dgon, namecom)
   wnmp devssl        # Self-signed certificate
   wnmp sslcheck      # Install Certificate Renewal Script
@@ -467,13 +469,14 @@ ssl_certificate_menu() {
   4) Force reissue a deployed domain certificate
   5) Create a self-signed certificate
   6) Configure ACME DNS API provider
+  7) Force reissue an IP certificate (supports first issuance)
   0) Back
 SSL_MENU
     local choice=""
     if [[ -r /dev/tty ]]; then
-      read -rp "Please select [0-6]: " choice </dev/tty || true
+      read -rp "Please select [0-7]: " choice </dev/tty || true
     else
-      read -rp "Please select [0-6]: " choice || true
+      read -rp "Please select [0-7]: " choice || true
     fi
     case "$choice" in
       1) wnmp_sslcheck ;;
@@ -488,6 +491,7 @@ SSL_MENU
       4) wnmp_ssl_force_issue ;;
       5) devssl ;;
       6) dns_provider_menu ;;
+      7) wnmp_ssl_force_ip_issue || true ;;
       0) return 0 ;;
       *) echo "[ssl] Invalid selection: $choice" ;;
     esac
@@ -509,6 +513,7 @@ ssl_certificate_command() {
       fi
       ;;
     force|reissue) wnmp_ssl_force_issue "${1:-}" ;;
+    force-ip|reissue-ip) wnmp_ssl_force_ip_issue "${1:-}" ;;
     dev|devssl|self-signed) devssl ;;
     *) ssl_certificate_menu ;;
   esac
@@ -865,115 +870,284 @@ EOF
 
 
 
-is_lan() {
-    IS_LAN=0
-    local ip="" wan="" local_ip=""
+# Shared public IPv4 selection for installation and IP certificate recovery.
+wnmp_is_ipv4() {
+  local value="${1:-}" octet
+  local -a octets
+  [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS=. read -r -a octets <<< "$value"
+  for octet in "${octets[@]}"; do
+    [[ "$octet" == 0 || "$octet" != 0* ]] || return 1
+    (( 10#$octet <= 255 )) || return 1
+  done
+}
 
-    _pick_best_ipv4() {
-        local x private=""
-     
-        local ip_list=""
-        if command -v hostname >/dev/null 2>&1; then
-            ip_list=$(hostname -I 2>/dev/null)
-        fi
-        
-        if [ -z "$ip_list" ] && command -v ip >/dev/null 2>&1; then
-            ip_list=$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[\d.]+')
-        fi
-        
-        
-        if [ -z "$ip_list" ] && command -v ifconfig >/dev/null 2>&1; then
-            ip_list=$(ifconfig 2>/dev/null | grep -oP 'inet \K[\d.]+')
-        fi
-        
-        for x in $ip_list; do
-            [[ -z "$x" ]] && continue
-            [[ "$x" =~ : ]] && continue
-            [[ "$x" =~ ^127\. ]] && continue
-          
-            if [[ "$x" =~ ^10\. ]] || \
-               [[ "$x" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-               [[ "$x" =~ ^192\.168\. ]] || \
-               [[ "$x" =~ ^169\.254\. ]]; then
-                [[ -z "$private" ]] && private="$x"
-                continue
-            fi
-          
-            echo "$x"
-            return 0
-        done
-        
-      
-        [[ -n "$private" ]] && echo "$private"
-       
-        echo ""
-    }
+wnmp_is_public_ipv4() {
+  local a b c d
+  wnmp_is_ipv4 "${1:-}" || return 1
+  IFS=. read -r a b c d <<< "$1"
+  (( a != 0 && a != 10 && a != 127 && a < 224 )) || return 1
+  (( !(a == 100 && b >= 64 && b <= 127) )) || return 1
+  (( !(a == 169 && b == 254) && !(a == 172 && b >= 16 && b <= 31) )) || return 1
+  (( !(a == 192 && b == 168) && !(a == 192 && b == 0 && (c == 0 || c == 2)) )) || return 1
+  (( !(a == 198 && (b == 18 || b == 19)) && !(a == 198 && b == 51 && c == 100) )) || return 1
+  (( !(a == 203 && b == 0 && c == 113) ))
+}
 
-   
-    _get_public_ipv4() {
-        local out=""
-        
-      
-        local api_services=(
-            "https://api.ipify.org"
-            "https://ifconfig.me/ip" 
-            "https://checkip.amazonaws.com"
-            "https://icanhazip.com"
-        )
-        
-        
-        if command -v curl >/dev/null 2>&1; then
-            for api in "${api_services[@]}"; do
-                out="$(curl -4fsS --max-time 3 "$api" 2>/dev/null 2>&1 | tr -d '\r\n ')"
-                if [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-                    echo "$out"
-                    return 0
-                fi
-            done
-        elif command -v wget >/dev/null 2>&1; then
-            for api in "${api_services[@]}"; do
-                out="$(wget -4qO- --timeout=3 "$api" 2>/dev/null 2>&1 | tr -d '\r\n ')"
-                if [[ "$out" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-                    echo "$out"
-                    return 0
-                fi
-            done
-        fi
-        
-       
-        echo "unknown"
-    }
+wnmp_interface_ipv4() {
+  local out
+  out="$(ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}' || true)"
+  if [ -z "$out" ]; then out="$(hostname -I 2>/dev/null || true)"; fi
+  if [ -z "$out" ]; then
+    out="$(ifconfig 2>/dev/null | awk '$1 == "inet" {sub(/^addr:/, "", $2); print $2}' || true)"
+  fi
+  printf '%s\n' "$out"
+}
 
- 
-    local_ip="$(_pick_best_ipv4)"
-    
-   
-    public_ip="$(_get_public_ipv4)"
-    
-  
-    if [[ -n "$local_ip" ]]; then
-    
-        if [[ "$local_ip" =~ ^10\. ]] || \
-           [[ "$local_ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-           [[ "$local_ip" =~ ^192\.168\. ]] || \
-           [[ "$local_ip" =~ ^169\.254\. ]]; then
-            IS_LAN=1
-            PUBLIC_IP="${public_ip:-$local_ip}"
-        else
-            IS_LAN=0
-            PUBLIC_IP="$local_ip"
-        fi
-    else
-       
-        IS_LAN=1
-        PUBLIC_IP="$public_ip"
+wnmp_detect_public_ipv4() {
+  local api out candidate
+  # Prefer a public address assigned to a local interface. Private addresses
+  # must never become ACME identifiers; behind NAT, try direct public APIs.
+  out="$(wnmp_interface_ipv4)"
+  for candidate in $out; do
+    if wnmp_is_public_ipv4 "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
     fi
-    
-   
-    [[ -z "$PUBLIC_IP" ]] && PUBLIC_IP="unknown"
-    
-    echo "$PUBLIC_IP"
-    return 0
+  done
+  # Ignore HTTP(S)/ALL_PROXY: a proxy's egress IP is not this server's IP.
+  for api in https://api.ipify.org https://ifconfig.me/ip https://checkip.amazonaws.com https://icanhazip.com; do
+    out=""
+    if command -v curl >/dev/null 2>&1; then
+      out="$(curl --noproxy '*' -4fsS --connect-timeout 2 --max-time 3 "$api" 2>/dev/null || true)"
+    elif command -v wget >/dev/null 2>&1; then
+      out="$(wget --no-proxy -4qO- --timeout=3 --tries=1 "$api" 2>/dev/null || true)"
+    fi
+    out="$(printf '%s' "$out" | tr -d '\r\n ')"
+    if wnmp_is_public_ipv4 "$out"; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  done
+  return 1
+}
+
+wnmp_select_public_ipv4() {
+  local selected="${1:-${WNMP_PUBLIC_IP:-}}" detected="" input=""
+  if [ -n "$selected" ]; then
+    if ! wnmp_is_public_ipv4 "$selected"; then
+      echo "[ssl] Invalid public IPv4 address: $selected" >&2
+      return 1
+    fi
+  else
+    detected="$(wnmp_detect_public_ipv4 || true)"
+    if [ -z "$detected" ]; then
+      echo "[ssl] Public IP detection failed. Enter the public IPv4 address." >&2
+    else
+      echo "[ssl] Detected public IPv4: $detected" >&2
+    fi
+    while true; do
+      input=""
+      local prompt="Public IPv4 (n to skip): "
+      [ -z "$detected" ] || prompt="Public IPv4 [$detected] (Enter to accept, n to skip): "
+      if [[ -r /dev/tty && -w /dev/tty ]]; then
+        read -rp "$prompt" input </dev/tty || return 1
+      else
+        printf '%s' "$prompt" >&2
+        read -r input || return 1
+      fi
+      [[ "$input" != n && "$input" != N ]] || return 1
+      selected="${input:-$detected}"
+      if wnmp_is_public_ipv4 "$selected"; then break; fi
+      echo "[ssl] Invalid public IPv4 address: $selected" >&2
+    done
+  fi
+  PUBLIC_IP="$selected"
+  echo "[ssl] Using public IPv4: $PUBLIC_IP" >&2
+  echo "[ssl] Public TCP port 80 must reach this server; configure NAT forwarding if needed." >&2
+}
+
+# Add HTTPS only to the default server; preserve all other server blocks.
+wnmp_enable_default_ip_https() {
+  local conf="/usr/local/nginx/nginx.conf" tmp
+  tmp="$(mktemp)" || return 1
+  if ! awk '
+    function emit( i) {
+      for (i=1; i<=n; i++) {
+        if (is_default && lines[i] ~ /^[[:space:]]*ssl_certificate[[:space:]]/) {
+          print "        ssl_certificate /usr/local/nginx/ssl/default/cert.pem;"
+        } else if (is_default && lines[i] ~ /^[[:space:]]*ssl_certificate_key[[:space:]]/) {
+          print "        ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;"
+        } else print lines[i]
+        if (is_default && i == name_line) {
+          if (!https) print "        listen 443 ssl default_server;\n        listen [::]:443 ssl default_server;"
+          if (!cert) print "        ssl_certificate /usr/local/nginx/ssl/default/cert.pem;"
+          if (!key) print "        ssl_certificate_key /usr/local/nginx/ssl/default/key.pem;"
+        }
+      }
+      if (is_default) found=1
+      n=0; in_server=0
+    }
+    /^[[:space:]]*server[[:space:]]*\{/ && !in_server {
+      in_server=1; depth=0; n=0; is_default=0; https=0; cert=0; key=0; name_line=0
+    }
+    in_server {
+      lines[++n]=$0
+      if ($0 ~ /^[[:space:]]*server_name[[:space:]]+_[[:space:]]*;/) {is_default=1; name_line=n}
+      if ($0 ~ /^[[:space:]]*listen[[:space:]].*443.*ssl/) https=1
+      if ($1 == "ssl_certificate") cert=1
+      if ($1 == "ssl_certificate_key") key=1
+      line=$0; sub(/#.*/, "", line)
+      depth += gsub(/\{/, "{", line) - gsub(/\}/, "}", line)
+      if (depth <= 0) emit()
+      next
+    }
+    { print }
+    END { if (!found || in_server) exit 1 }
+  ' "$conf" > "$tmp"; then
+    rm -f "$tmp"
+    echo "[ssl] Cannot configure HTTPS: default server_name _ block not found." >&2
+    return 1
+  fi
+  cat "$tmp" > "$conf"
+  local status=$?
+  rm -f "$tmp"
+  return "$status"
+}
+
+wnmp_cert_covers_ip() {
+  openssl x509 -in "$1" -noout -ext subjectAltName 2>/dev/null \
+    | tr ',' '\n' | sed 's/^[[:space:]]*//' | grep -Fxq "IP Address:$2"
+}
+
+wnmp_install_ip_certificate() {
+  local ip="$1" ssl_dir="/usr/local/nginx/ssl/default"
+  local acme_bin="/root/.acme.sh/acme.sh" cert_pub key_pub
+  mkdir -p "$ssl_dir" || return 1
+  "$acme_bin" --install-cert -d "$ip" --ecc \
+    --key-file "$ssl_dir/key.pem" --fullchain-file "$ssl_dir/cert.pem" --reloadcmd true || return 1
+  wnmp_cert_covers_ip "$ssl_dir/cert.pem" "$ip" || return 1
+  openssl x509 -in "$ssl_dir/cert.pem" -noout -checkend 0 >/dev/null 2>&1 || return 1
+  cert_pub="$(openssl x509 -in "$ssl_dir/cert.pem" -pubkey -noout)" || return 1
+  key_pub="$(openssl pkey -in "$ssl_dir/key.pem" -pubout)" || return 1
+  [ -n "$cert_pub" ] && [ "$cert_pub" = "$key_pub" ] || return 1
+  echo "[ssl] IP certificate installed and verified: $ip"
+}
+
+# A subshell confines cleanup traps to this operation, including Ctrl-C/failure.
+wnmp_issue_ip_certificate() (
+  local ip="$1" deploy="${2:-0}" force="${3:-0}"
+  local acme_bin="/root/.acme.sh/acme.sh" ssl_dir="/usr/local/nginx/ssl/default"
+  local conf="/usr/local/nginx/nginx.conf" backup="" stopped=0 committed=0 item
+  local -a args=(--issue --server letsencrypt -d "$ip" --certificate-profile shortlived --standalone --keylength ec-256)
+  wnmp_is_public_ipv4 "$ip" || { echo "[ssl] Invalid public IPv4 address: $ip"; return 1; }
+  [ -x "$acme_bin" ] || { echo "[ssl] acme.sh is missing. Install Nginx/acme.sh first."; return 1; }
+  if [ "$deploy" = 1 ]; then
+    [ -f "$conf" ] || { echo "[ssl] Nginx configuration not found."; return 1; }
+    backup="$(mktemp -d)" || return 1
+    cp -p "$conf" "$backup/nginx.conf" || { rm -rf "$backup"; return 1; }
+    for item in cert.pem key.pem; do
+      if [ -e "$ssl_dir/$item" ]; then
+        cp -p "$ssl_dir/$item" "$backup/$item" || { rm -rf "$backup"; return 1; }
+      fi
+    done
+    if [ -f /root/.acme.sh/wnmp-ip ]; then
+      cp -p /root/.acme.sh/wnmp-ip "$backup/wnmp-ip" || { rm -rf "$backup"; return 1; }
+    fi
+  fi
+  restore_ip_files() {
+    cp -p "$backup/nginx.conf" "$conf" || return 1
+    for item in cert.pem key.pem; do
+      if [ -e "$backup/$item" ]; then
+        cp -p "$backup/$item" "$ssl_dir/$item" || return 1
+      else
+        rm -f "$ssl_dir/$item" || return 1
+      fi
+    done
+    if [ -f "$backup/wnmp-ip" ]; then
+      cp -p "$backup/wnmp-ip" /root/.acme.sh/wnmp-ip || return 1
+    else
+      rm -f /root/.acme.sh/wnmp-ip || return 1
+    fi
+  }
+  cleanup_ip_issue() {
+    local status=$?
+    trap - EXIT INT TERM
+    set +e
+    if [ -n "$backup" ] && [ "$committed" = 0 ]; then
+      if ! restore_ip_files; then
+        echo "[ssl] Failed to restore the previous certificate/configuration." >&2
+        status=1
+      fi
+    fi
+    if [ "$stopped" = 1 ] && ! systemctl start nginx; then
+      echo "[ssl] Failed to restore the running Nginx service." >&2
+      status=1
+      if [ -n "$backup" ] && [ "$committed" = 1 ]; then
+        restore_ip_files
+        systemctl start nginx
+      fi
+    fi
+    [ -z "$backup" ] || rm -rf "$backup"
+    exit "$status"
+  }
+  trap cleanup_ip_issue EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if systemctl is-active --quiet nginx; then
+    systemctl stop nginx || return 1
+    stopped=1
+  fi
+  [ "$force" != 1 ] || args+=(--force)
+  if ! "$acme_bin" "${args[@]}"; then
+    echo "[ssl] IP certificate issuance failed. Check the public IP, NAT/firewall TCP port 80 and the ACME log above." >&2
+    return 1
+  fi
+  if [ "$deploy" = 1 ]; then
+    wnmp_install_ip_certificate "$ip" || return 1
+    wnmp_enable_default_ip_https || return 1
+    /usr/local/nginx/sbin/nginx -t || return 1
+    printf '%s\n' "$ip" > /root/.acme.sh/wnmp-ip || return 1
+  fi
+  committed=1
+)
+
+wnmp_cleanup_invalid_acme_records() {
+  local record
+  # These exact names were created by older IP detection failures.
+  for record in /root/.acme.sh/unknown_ecc /root/.acme.sh/unknown; do
+    if [ -e "$record" ] || [ -L "$record" ]; then
+      if rm -rf -- "$record"; then
+        echo "[ssl] Removed invalid ACME record: $record"
+      else
+        echo "[ssl] Failed to remove invalid ACME record: $record" >&2
+        return 1
+      fi
+    fi
+  done
+}
+
+wnmp_ssl_force_ip_issue() {
+  wnmp_cleanup_invalid_acme_records || return 1
+  wnmp_select_public_ipv4 "${1:-}" || return 1
+  wnmp_issue_ip_certificate "$PUBLIC_IP" 1 1 || return 1
+  wnmp_sslcheck || return 1
+  echo "[ssl] IP certificate reissued; daily renewal task installed: $PUBLIC_IP"
+}
+
+is_lan() {
+  local candidate
+  # Keep the local-network classification used by domain/vhost menus.
+  IS_LAN=1
+  for candidate in $(wnmp_interface_ipv4); do
+    if wnmp_is_public_ipv4 "$candidate"; then IS_LAN=0; break; fi
+  done
+  PUBLIC_IP="${WNMP_PUBLIC_IP:-}"
+  if ! wnmp_is_public_ipv4 "$PUBLIC_IP"; then
+    PUBLIC_IP="$(wnmp_detect_public_ipv4 || true)"
+  fi
+  printf '%s\n' "$PUBLIC_IP"
+  return 0
 }
 
 detect_cn_ip() {
@@ -6385,9 +6559,15 @@ wnmp_sslcheck() {
 
 
     echo "[WNMP] sslcheck: write $SSL_CHECK"
-    cat > "$SSL_CHECK" <<'EOF'
-#!/bin/bash
+    {
+      printf '#!/bin/bash\n'
+      declare -f wnmp_is_ipv4 wnmp_is_public_ipv4 wnmp_cert_covers_ip wnmp_enable_default_ip_https \
+        wnmp_install_ip_certificate wnmp_issue_ip_certificate wnmp_cleanup_invalid_acme_records
+    } > "$SSL_CHECK" || return 1
+    cat >> "$SSL_CHECK" <<'EOF'
 set -u
+
+wnmp_cleanup_invalid_acme_records || exit 1
 
 dir_path="/root/.acme.sh"
 acme_bin="/root/.acme.sh/acme.sh"
@@ -6402,31 +6582,20 @@ FORCE_DOMAIN="${WNMP_SSL_FORCE_DOMAIN:-}"
 
 PREFER_LOCAL_CERT=1
 
-USE_ALPN_FOR_IP=0
 
 FLAG="/tmp/acme_renew_need_restart_nginx.flag"
 rm -f "$FLAG"
 force_found=0
+renew_failed=0
+ACTIVE_IP="$(cat "$dir_path/wnmp-ip" 2>/dev/null || true)"
+if ! wnmp_is_public_ipv4 "$ACTIVE_IP"; then
+  ACTIVE_IP="$(openssl x509 -in "$IP_SSL_DIR/cert.pem" -noout -ext subjectAltName 2>/dev/null | sed -n 's/.*IP Address:\([0-9.]*\).*/\1/p' | head -n1)"
+fi
 
 log() { echo -e "[$(date '+%F %T')] $*"; }
 
-is_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
+is_ip() { wnmp_is_ipv4 "$1"; }
 is_force_target() { [ -n "$FORCE_DOMAIN" ] && [ "$1" = "$FORCE_DOMAIN" ]; }
-
-nginx_stop_if_running() {
-  if systemctl is-active --quiet nginx; then
-    log "🛑 Stopping nginx..."
-    systemctl stop nginx
-  fi
-}
-
-nginx_start_if_not_running() {
-  if ! systemctl is-active --quiet nginx; then
-    log "🚀 Starting nginx..."
-    systemctl start nginx
-  fi
-}
-
 
 get_end_time_from_file() {
   local cert_file="$1"
@@ -6491,6 +6660,14 @@ while IFS= read -r -d '' full; do
   found_any=1
   dir="$(basename "$full")"
   primary="${dir%_ecc}"
+  if [ "$primary" = unknown ]; then
+    log "[warn] Ignoring invalid legacy record: $dir (use wnmp ssl force-ip)"
+    continue
+  fi
+  if is_ip "$primary" && wnmp_is_public_ipv4 "$ACTIVE_IP" && [ "$primary" != "$ACTIVE_IP" ]; then
+    log "[info] Skipping inactive IP record: $primary (active: $ACTIVE_IP)"
+    continue
+  fi
 
   log ""
   log "=============================="
@@ -6516,12 +6693,17 @@ while IFS= read -r -d '' full; do
     [ -n "$end_time" ] || log "⚠️ Remote probe failed for $primary"
   fi
 
-  if [ -z "${end_time:-}" ]; then
+  if is_ip "$primary" && ! wnmp_cert_covers_ip "$IP_SSL_DIR/cert.pem" "$primary"; then
+    end_time=""
+  fi
+
+  if [ -z "${end_time:-}" ] && ! is_ip "$primary"; then
     log "⏭️ Skip: cannot get end date for $primary"
     continue
   fi
 
   left_days="$(days_left_from_endtime "$end_time" || true)"
+  if is_ip "$primary" && [ -z "$end_time" ]; then left_days=0; fi
   if [ -z "${left_days:-}" ]; then
     log "⏭️ Skip: cannot parse end date: $end_time"
     continue
@@ -6538,29 +6720,9 @@ while IFS= read -r -d '' full; do
       else
         log "🔁 IP cert needs renew (threshold=$THRESH_IP_DAYS)"
       fi
-      nginx_stop_if_running
-
-      issue_ok=0
-      if [ "${USE_ALPN_FOR_IP:-0}" -eq 1 ]; then
-        log "🌐 Issue via ALPN(443): $primary"
-        if "$acme_bin" --issue --server letsencrypt -d "$primary" \
-            --certificate-profile shortlived --alpn \
-            --keylength ec-256 --force; then
-          issue_ok=1
-        fi
-      else
-        log "🌐 Issue via standalone(80): $primary"
-        if "$acme_bin" --issue --server letsencrypt -d "$primary" \
-            --certificate-profile shortlived --standalone \
-            --keylength ec-256 --force; then
-          issue_ok=1
-        fi
-      fi
-
-      nginx_start_if_not_running
-
-      if [ "$issue_ok" -eq 1 ]; then
-        install_cert_to_dir "$primary" "$IP_SSL_DIR"
+      if ! wnmp_issue_ip_certificate "$primary" 1 1; then
+        log "[error] IP certificate reissue/install failed: $primary"
+        renew_failed=1
       fi
     fi
   else
@@ -6740,7 +6902,7 @@ fi
 
 if [ -f "$FLAG" ]; then
   log "♻️ Restart nginx due to cert updates..."
-  systemctl restart nginx
+  systemctl restart nginx || renew_failed=1
   rm -f "$FLAG"
   log "✅ nginx restarted."
 else
@@ -6748,6 +6910,7 @@ else
 fi
 
 
+exit "$renew_failed"
 EOF
     chmod +x "$SSL_CHECK" || { echo "[WNMP] sslcheck: chmod failed"; return 1; }
 
@@ -6843,7 +7006,7 @@ wnmp_ssltest() {
 
   local PREFER_LOCAL_CERT=1
 
-  is_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
+  is_ip() { wnmp_is_ipv4 "$1"; }
 
 
   get_end_time_from_file() {
@@ -6876,12 +7039,18 @@ wnmp_ssltest() {
   printf "\n%-30s %-10s %-8s %-12s %-24s\n" "DOMAIN / IP" "TYPE" "SRC" "LEFT(days)" "EXPIRE AT"
   printf "%-30s %-10s %-8s %-12s %-24s\n" "------------------------------" "----------" "--------" "------------" "------------------------"
 
+  wnmp_cleanup_invalid_acme_records || return 1
+  local ip_record_found=0 active_ip
+  active_ip="$(cat "$dir_path/wnmp-ip" 2>/dev/null || true)"
   while IFS= read -r -d '' full; do
     local dir primary end_time left_days type src cert_file
     dir="$(basename "$full")"
     primary="${dir%_ecc}"
 
+
     if is_ip "$primary"; then
+      if wnmp_is_public_ipv4 "$active_ip" && [ "$primary" != "$active_ip" ]; then continue; fi
+      ip_record_found=1
       type="IP(short)"
       cert_file="$IP_SSL_DIR/cert.pem"
     else
@@ -6894,7 +7063,9 @@ wnmp_ssltest() {
 
    
     if [ "$PREFER_LOCAL_CERT" -eq 1 ]; then
-      end_time="$(get_end_time_from_file "$cert_file" || true)"
+      if ! is_ip "$primary" || wnmp_cert_covers_ip "$cert_file" "$primary"; then
+        end_time="$(get_end_time_from_file "$cert_file" || true)"
+      fi
       if [ -n "${end_time:-}" ]; then
         src="LOCAL"
       fi
@@ -6910,7 +7081,9 @@ wnmp_ssltest() {
 
     if [ -z "${end_time:-}" ]; then
    
-      if [ -s "$cert_file" ]; then
+      if is_ip "$primary" && [ -s "$cert_file" ] && ! wnmp_cert_covers_ip "$cert_file" "$primary"; then
+        printf "%-30s %-10s %-8s %-12s %-24s\n" "$primary" "$type" ERR ERR "local cert IP mismatch"
+      elif [ -s "$cert_file" ]; then
         printf "%-30s %-10s %-8s %-12s %-24s\n" "$primary" "$type" "ERR" "ERR" "remote unreachable"
       else
         printf "%-30s %-10s %-8s %-12s %-24s\n" "$primary" "$type" "ERR" "ERR" "no local cert + unreachable"
@@ -6935,7 +7108,11 @@ wnmp_ssltest() {
     ssl_dir="$(dirname "$cert_file")"
     domain="$(basename "$ssl_dir")"
 
-    [ "$domain" = "default" ] && continue
+    if [ "$domain" = default ]; then
+      [ "$ip_record_found" = 0 ] || continue
+      domain="$(openssl x509 -in "$cert_file" -noout -ext subjectAltName 2>/dev/null | sed -n 's/.*IP Address:\([0-9.]*\).*/\1/p' | head -n1 || true)"
+      domain="${domain:-default(IP)}"
+    fi
     [ -d "$dir_path/${domain}_ecc" ] && continue
 
     end_time="$(get_end_time_from_file "$cert_file" || true)"
@@ -7170,23 +7347,13 @@ elif [[ "$WNMP_INSTALL_COMPONENT" == "nginx" ]]; then
 fi
 
 
-if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$choosenginx" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
-if [[ "$IS_LAN" -eq 1 ]]; then
-    red "[env] This is an internal network environment; certificate requests will be skipped."
-    read -rp "Is it mandatory to apply for the certificate?[y/N] " ans
-    ans="${ans:-N}"
-    if [[ "$ans" =~ [Yy]$ ]]; then
-      green "[env] Forced certificate application has been selected."
-      IS_LAN=0
-    else
-      red "[env] Keep skipping certificate requests."
-    fi
-  else
-    green "[env] Public network environment detected; certificate application can proceed normally."
+IP_CERT_REQUESTED=0
+IP_CERT_ISSUED=0
+if [[ "$choosenginx" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+  if wnmp_select_public_ipv4; then
+    IP_CERT_REQUESTED=1
   fi
 fi
-
-
 
 apt --fix-broken install -y
 apt autoremove -y
@@ -7576,18 +7743,13 @@ case "$choosenginx" in
     fi
 
 
-    if [[ "$IS_LAN" -eq 0 ]]; then 
-        
- 
-        echo "$PUBLIC_IP"
-        if acme.sh --issue --server letsencrypt -d "$PUBLIC_IP" --certificate-profile shortlived --standalone; then
-            echo "[Success] Certificate application successful"
-        else
-            IS_LAN=1
-            echo "[Notice] Certificate application failed. IS_LAN has been switched to 1."
-        fi
+    # Issuance success, not the local interface address, selects the HTTPS template.
+    IS_LAN=1
+    if [ "$IP_CERT_REQUESTED" = 1 ]; then
+      if wnmp_issue_ip_certificate "$PUBLIC_IP"; then
+        IP_CERT_ISSUED=1
+      fi
     fi
-
 
     mkdir -p /home/wwwroot/default
     mkdir -p /home/wwwlogs
@@ -8366,6 +8528,16 @@ EOF
 
 cp /usr/local/nginx/fastcgi.conf /usr/local/nginx/fastcgi_params
 
+if [ "$IP_CERT_ISSUED" = 1 ]; then
+  if wnmp_install_ip_certificate "$PUBLIC_IP"; then
+    printf '%s\n' "$PUBLIC_IP" > /root/.acme.sh/wnmp-ip
+    IS_LAN=0
+  else
+    IS_LAN=1
+    echo "[ssl] IP certificate installation failed; using HTTP. Retry with: wnmp ssl force-ip"
+  fi
+fi
+
 if [[ "$IS_LAN" -eq 1 ]]; then
 cat <<'EOF' >  /usr/local/nginx/nginx.conf
 user  www www;
@@ -8678,10 +8850,6 @@ http {
 }
 EOF
 fi
-
-    if [[ "$IS_LAN" -eq 0 ]]; then  
-      acme.sh --install-cert -d "$PUBLIC_IP" --ecc --key-file  /usr/local/nginx/ssl/default/key.pem  --fullchain-file /usr/local/nginx/ssl/default/cert.pem  || true
-    fi
 
     wnmp_restore_nginx_backup "$(wnmp_resolve_nginx_backup)" "[install]"
 
