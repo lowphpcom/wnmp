@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.70
+# Version: 1.71
+# v1.71 2026-11-19 Urgent Nginx security update: changed the default Nginx version to 1.31.9 for full/standalone installations and wnmp update nginx. Nginx 1.31.9 was released on 2026-11-18 with fixes for try_files/alias buffer overflow (CVE-2026-125283), HTTP/2 flow-control overflow (CVE-2026-123007), HTTP/2 and HTTP/3 use-after-free (CVE-2026-123633, CVE-2026-121810), resolver use-after-free (CVE-2026-123634), mail proxy use-after-free (CVE-2026-113425), stream client-certificate verification (CVE-2026-120967), PROXY protocol v2 crashes (CVE-2026-120993), stream ssl_preread security restriction bypass (CVE-2026-123640), and TLS request-body infinite loops (CVE-2026-118899). It also rejects header lines without a colon and excessive chunked-body framing overhead. Nginx and PHP use versioned source archive filenames for downloading, cache lookup and extraction (for example, nginx-1.31.9.tar.gz and php-8.5.12.tar.gz). Installation reuses only an archive matching the selected version; legacy nginx.tar.gz and php.tar.gz are ignored. Source directories and subsequent build, installation and configuration steps are unchanged. Run wnmp update, then wnmp update nginx and accept 1.31.9; verify with /usr/local/nginx/sbin/nginx -v. Updating the WNMP script alone does not upgrade an installed Nginx. English/Chinese script versions, documentation, website pages and release metadata are synchronized to v1.71.
 # v1.70 2026-11-06 Added SSL menu option 7 and wnmp ssl force-ip [IPv4] to issue or force reissue IP certificates, including recovery after a failed first request without an existing certificate. Initial Nginx installation and IP reissuance now prefer public IPv4 addresses on local interfaces, then query external IP APIs while bypassing proxies, and prompt for a public IPv4 address if detection fails. Detected addresses can be overridden; command arguments or WNMP_PUBLIC_IP support an explicitly configured NAT address. Invalid, private and reserved addresses are rejected instead of requesting a certificate for unknown. Issuance explicitly uses ECC and the Let's Encrypt shortlived profile. Successful recovery verifies certificate validity, IP coverage and key matching, enables HTTPS on the default Nginx site, records the active IP and installs daily renewal. Failed issuance, deployment or Nginx configuration checks restore the previous files and attempt to restore the running service; failed Nginx startup also attempts rollback. Daily renewal can recover missing IP certificates and skips inactive IP records. Certificate checks, daily renewal and IP reissuance automatically clean up the exact invalid unknown_ecc and unknown ACME records, reporting removals. NAT servers still require public TCP port 80 to reach this server. Domain certificate issuance remains unchanged. English and Chinese scripts, documentation, local website pages and release metadata are synchronized.
 # v1.69 2026-10-23 Added MariaDB upgrade/downgrade to component updates in menu 11 (wnmp update mariadb). Fresh installations and updates now share MariaDB series 10.11, 11.4, 11.8 and 12.3, with default complete versions 10.11.19, 11.4.13, 11.8.9 and 12.3.3. MariaDB series outside Mroonga compatibility, incomplete or mismatched versions and invalid source archives are rejected; MariaDB 12.3 requires Mroonga 16.12 or later, and cached Mroonga archives are checked. Updates use existing local administrative credentials without prompting for a root password, compile and verify the target version before stopping the database, and retain full SQL, program, configuration and stopped-server data backups under /home/wnmp-backups/mariadb/. Application databases, routines, events, triggers, accounts, roles and grants are restored automatically into newly initialized system tables while database access is paused; failed updates attempt to restore the previous version. Custom system metadata such as time zone tables, replication settings and third-party plugins/UDFs requires separate migration; Mroonga is rebuilt automatically. Added root password changes in menu 20 (wnmp mysqlpass) with hidden input, confirmation and preserved local socket authentication; fresh installations still require a root password. English and Chinese scripts and documentation are synchronized.
 # v1.68 2026-10-22 Updated the default Nginx version to 1.31.8 for new installations and wnmp update nginx. Completed PHP security configuration for new installations and after restoring a backed-up php.ini: memory_limit = -1, post_max_size = 32M, and an individual upload limit of 16M while preserving smaller limits. Only PHP 8.5 receives fatal_error_backtraces = 0. Existing session settings and unrelated customizations are preserved; missing session.upload_progress.enabled = 0 and session.use_strict_mode = 1 directives are added idempotently. PHP-FPM enforces the memory and POST limits and the PHP 8.5 backtrace setting, and component updates verify worker restart. Generated Nginx default, HTTP/HTTPS site, and reverse-proxy configurations use client_max_body_size 32M. Deprecated session ID tuning and E_STRICT defaults were removed from new PHP templates. These measures supplement upgrading to patched PHP releases.
@@ -70,7 +71,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.70"
+  green  " [init] Version: 1.71"
 green  "============================================================"
 echo
 sleep 1
@@ -5318,7 +5319,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.8")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.9")" || return 1
   local nginx_tar="nginx-${nginx_version}.tar.gz"
   local nginx_dir="nginx-${nginx_version}"
   local nginx_url="https://nginx.org/download/${nginx_tar}"
@@ -7385,7 +7386,7 @@ ldconfig
 if [ "$php_version" != "0" ]; then
   cd "$WNMPDIR"
   purge_php || true
-  php_tar="php-$php_version.tar.gz"
+  php_tar="php-${php_version}.tar.gz"
   php_dir="php-$php_version"
   
   if [ ! -f "$php_tar" ]; then
@@ -7757,10 +7758,12 @@ case "$choosenginx" in
 
     
 
-    if [ ! -f "$WNMPDIR/nginx.tar.gz" ]; then
+    nginx_version="1.31.9"
+    nginx_tar="nginx-${nginx_version}.tar.gz"
+    if [ ! -f "$WNMPDIR/$nginx_tar" ]; then
       rm -rf nginx
-      download_with_mirrors "https://nginx.org/download/nginx-1.31.8.tar.gz" "$WNMPDIR/nginx.tar.gz"
-      mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
+      download_with_mirrors "https://nginx.org/download/$nginx_tar" "$WNMPDIR/$nginx_tar"
+      mkdir -p tmp && tar zxf "$nginx_tar" -C tmp && mv tmp/* nginx && rm -rf tmp
       
       cd nginx
       git --version >/dev/null || { log "git missing"; exit 1; }
@@ -7769,7 +7772,7 @@ case "$choosenginx" in
       
     else
       rm -rf nginx
-      mkdir -p tmp && tar zxf nginx.tar.gz -C tmp && mv tmp/* nginx && rm -rf tmp
+      mkdir -p tmp && tar zxf "$nginx_tar" -C tmp && mv tmp/* nginx && rm -rf tmp
       cd nginx
       git --version >/dev/null || { log "git missing"; exit 1; }
       rm -rf nginx-dav-ext-module
