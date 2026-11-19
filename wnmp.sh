@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.72
+# Version: 1.73
+# v1.73 2026-11-19 Added PHP 8.6.0 final to full/standalone installation, component upgrades and PHP/FPM configuration. PHP 8.2–8.5 defaults remain 8.2.36, 8.3.37, 8.4.28 and 8.5.13. All six PHP 8.6 Swoole builds tested (v6.1.4, v6.2.6 full/minimal, v6.3.0-rc1, and master full/minimal) failed, so its menu reads php8.6 (no Swoole), skips Swoole/liburing and removes restored Swoole loading directives. PHP 8.6 uses built-in OPcache. Redis 6.3.0 and APCu 5.1.28 also failed to compile; PHP 8.6 instead builds tested, SHA256-verified upstream development snapshots pinned to Redis 5b60b125aba3 and APCu fb2c942552a3. Stable inotify 3.0.1 passed. Isolated PHP-FPM/FastCGI, APCu read/write and inotify watch tests passed. Run wnmp update, then wnmp update php; enter 8.6.0 to switch an older series, or press Enter if already on 8.6. Applications requiring Swoole should stay on PHP 8.2–8.5. English/Chinese scripts, READMEs, website pages and release metadata are synchronized to v1.73.
 # v1.72 2026-11-19 PHP security update: changed the PHP defaults for full installations, standalone PHP installations and wnmp update php to 8.5.13, 8.4.28, 8.3.37 and 8.2.36, released by PHP on 2026-11-19. Fixes include PHP-FPM request smuggling (CVE-2026-129289), PHP-FPM epoll use-after-free/local privilege escalation (CVE-2026-129291), and timezone-cache use-after-free/remote code execution (CVE-2026-129496); consult the official PHP ChangeLog for all fixes and affected branches. Existing users should run wnmp update, then wnmp update php, accept the default patch release for their installed PHP series, and verify with /usr/local/php/bin/php -v. Updating the WNMP script alone does not upgrade an installed PHP. PHP remains limited to series 8.2–8.5. Synchronized English/Chinese scripts, READMEs, website version badges, download examples and release metadata to v1.72.
 # v1.71 2026-11-19 Urgent Nginx security update: changed the default Nginx version to 1.31.9 for full/standalone installations and wnmp update nginx. Nginx 1.31.9 was released on 2026-11-18 with fixes for try_files/alias buffer overflow (CVE-2026-125283), HTTP/2 flow-control overflow (CVE-2026-123007), HTTP/2 and HTTP/3 use-after-free (CVE-2026-123633, CVE-2026-121810), resolver use-after-free (CVE-2026-123634), mail proxy use-after-free (CVE-2026-113425), stream client-certificate verification (CVE-2026-120967), PROXY protocol v2 crashes (CVE-2026-120993), stream ssl_preread security restriction bypass (CVE-2026-123640), and TLS request-body infinite loops (CVE-2026-118899). It also rejects header lines without a colon and excessive chunked-body framing overhead. Nginx and PHP use versioned source archive filenames for downloading, cache lookup and extraction (for example, nginx-1.31.9.tar.gz and php-8.5.12.tar.gz). Installation reuses only an archive matching the selected version; legacy nginx.tar.gz and php.tar.gz are ignored. Source directories and subsequent build, installation and configuration steps are unchanged. Run wnmp update, then wnmp update nginx and accept 1.31.9; verify with /usr/local/nginx/sbin/nginx -v. Updating the WNMP script alone does not upgrade an installed Nginx. English/Chinese script versions, documentation, website pages and release metadata are synchronized to v1.71.
 # v1.70 2026-11-06 Added SSL menu option 7 and wnmp ssl force-ip [IPv4] to issue or force reissue IP certificates, including recovery after a failed first request without an existing certificate. Initial Nginx installation and IP reissuance now prefer public IPv4 addresses on local interfaces, then query external IP APIs while bypassing proxies, and prompt for a public IPv4 address if detection fails. Detected addresses can be overridden; command arguments or WNMP_PUBLIC_IP support an explicitly configured NAT address. Invalid, private and reserved addresses are rejected instead of requesting a certificate for unknown. Issuance explicitly uses ECC and the Let's Encrypt shortlived profile. Successful recovery verifies certificate validity, IP coverage and key matching, enables HTTPS on the default Nginx site, records the active IP and installs daily renewal. Failed issuance, deployment or Nginx configuration checks restore the previous files and attempt to restore the running service; failed Nginx startup also attempts rollback. Daily renewal can recover missing IP certificates and skips inactive IP records. Certificate checks, daily renewal and IP reissuance automatically clean up the exact invalid unknown_ecc and unknown ACME records, reporting removals. NAT servers still require public TCP port 80 to reach this server. Domain certificate issuance remains unchanged. English and Chinese scripts, documentation, local website pages and release metadata are synchronized.
@@ -94,7 +95,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.72"
+  green  " [init] Version: 1.73"
 green  "============================================================"
 echo
 sleep 1
@@ -3931,12 +3932,60 @@ wnmp_restore_php_ini_backup() {
   echo "${label} Restored previous php.ini: ${php_ini_backup}"
 }
 
+# Stable Redis/APCu releases do not yet build with PHP 8.6. Pin tested upstream snapshots.
+wnmp_install_php86_extensions() (
+  local prefix="${1:-/usr/local/php}"
+  local extension repository commit checksum archive source_dir
+  echo "[php8.6][WARN] Redis/APCu use pinned upstream development snapshots; their stable releases are not yet compatible."
+  for extension in redis apcu; do
+    case "$extension" in
+      redis)
+        repository="phpredis/phpredis"
+        commit="5b60b125aba347159b0c9c319296fbb3c5ed9214"
+        checksum="9172bcb6adc2031e99b8f57f5f44fd17c2a7bcfa8df0c303c85f90a6a2c414ef"
+        ;;
+      apcu)
+        repository="krakjoe/apcu"
+        commit="fb2c942552a3f5dab7f4dea4afb5cf0831222c57"
+        checksum="7f9d03dfabaf5961021c529f48a61386b73cd697cbacd410008ec32bc2d038c6"
+        ;;
+    esac
+    archive="$WNMPDIR/php86-${extension}-${commit}.tar.gz"
+    source_dir="$WNMPDIR/php86-${extension}-${commit}"
+    if [[ -f "$archive" ]] && ! printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c - >/dev/null 2>&1; then
+      rm -f -- "$archive" || return 1
+    fi
+    if [[ ! -f "$archive" ]]; then
+      download_with_mirrors "https://codeload.github.com/${repository}/tar.gz/${commit}" "$archive" || return 1
+    fi
+    if ! printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -; then
+      echo "[php8.6][ERROR] Checksum verification failed for ${extension}; refusing to build." >&2
+      return 1
+    fi
+    rm -rf -- "$source_dir" || return 1
+    mkdir -p "$source_dir" || return 1
+    tar -xzf "$archive" -C "$source_dir" --strip-components=1 || return 1
+    cd "$source_dir" || return 1
+    "$prefix/bin/phpize" || return 1
+    ./configure --with-php-config="$prefix/bin/php-config" || return 1
+    make -j"${JOBS:-2}" || return 1
+    make install || return 1
+    "$prefix/bin/php" -n -d "extension=${extension}.so" --ri "$extension" || return 1
+  done
+  # Do not run PIE with a restored php.ini that still refers to modules being rebuilt.
+  "$prefix/bin/php" -n "$prefix/bin/pie" install --with-php-config="$prefix/bin/php-config" \
+    --with-phpize-path="$prefix/bin/phpize" --skip-enable-extension --no-interaction \
+    -j"${JOBS:-2}" arnaud-lb/inotify || return 1
+  "$prefix/bin/php" -n -d extension=inotify.so --ri inotify || return 1
+)
+
 wnmp_secure_php_config() {
   local php_version="$1"
   local php_ini="${2:-/usr/local/php/etc/php.ini}"
-  local tmp php85=0
+  local tmp php85=0 php86=0
 
   case "$php_version" in
+    8.6.*) php85=1; php86=1 ;;
     8.5.*) php85=1 ;;
     8.[234].*) ;;
     *) return 1 ;;
@@ -3945,13 +3994,23 @@ wnmp_secure_php_config() {
   tmp="$(mktemp "${php_ini}.tmp.XXXXXX")" || return 1
 
   # Apply the chosen OOM limits; preserve existing session directives and unrelated settings.
-  if ! cp -p "$php_ini" "$tmp" || ! awk -v php85="$php85" '
+  if ! cp -p "$php_ini" "$tmp" || ! awk -v php85="$php85" -v php86="$php86" '
     function key_of(line, key) {
       sub(/^[ \t]+/, "", line)
       if (line ~ /^[;#[]/ || line !~ /=/) return ""
       key=line
       sub(/[ \t]*=.*/, "", key)
       return tolower(key)
+    }
+    function extension_name(line) {
+      sub(/^[^=]*=[ \t]*/, "", line)
+      sub(/[;#].*$/, "", line)
+      gsub(/[ \t\r"\047]/, "", line)
+      line=tolower(line)
+      sub(/^.*[/\\]/, "", line)
+      sub(/^php_/, "", line)
+      sub(/\.(so|dll)$/, "", line)
+      return line
     }
     function upload_limit(line, value, unit, bytes) {
       sub(/^[^=]*=[ \t]*/, "", line)
@@ -3987,6 +4046,8 @@ wnmp_secure_php_config() {
       key=key_of($0)
       if (key == "memory_limit" || key == "post_max_size" || key == "upload_max_filesize") next
       if (php85 && key == "fatal_error_backtraces") next
+      if (php86 && key == "extension" && extension_name($0) == "swoole") next
+      if (php86 && key == "zend_extension" && extension_name($0) == "opcache") next
       print
     }
     END { if (!emitted) defaults() }
@@ -5503,17 +5564,21 @@ wnmp_update_php() {
   echo "[update] Current PHP version: ${old_php_version}"
 
   case "$old_php_version" in
+    8.6.*) default_php_version="8.6.0" ;;
     8.5.*) default_php_version="8.5.13" ;;
     8.4.*) default_php_version="8.4.28" ;;
     8.3.*) default_php_version="8.3.37" ;;
     8.2.*) default_php_version="8.2.36" ;;
     *)
-      echo "[update][ERROR] Cannot select a default update for PHP ${old_php_version}; an installed PHP 8.2, 8.3, 8.4, or 8.5 is required."
+      echo "[update][ERROR] Cannot select a default update for PHP ${old_php_version}; an installed PHP 8.2, 8.3, 8.4, 8.5, or 8.6 is required."
       return 1
       ;;
   esac
 
   php_version="$(wnmp_read_update_version "PHP" "$default_php_version")" || return 1
+  if [[ "$php_version" == 8.6.* ]]; then
+    echo "[update][WARN] PHP 8.6 has no Swoole. Redis/APCu use tested development snapshots. Restored Swoole loading directives will be disabled."
+  fi
 
   local php_tar="php-${php_version}.tar.gz"
   local php_dir="php-${php_version}"
@@ -5534,7 +5599,7 @@ wnmp_update_php() {
     echo "[update][ERROR] Failed to install PHP build dependencies. The old version was not removed."
     return 1
   fi
-  if ! wnmp_ensure_liburing; then
+  if [[ "$php_version" != 8.6.* ]] && ! wnmp_ensure_liburing; then
     echo "[update][ERROR] Failed to prepare the Swoole dependency liburing. The old PHP installation was not removed."
     return 1
   fi
@@ -5667,11 +5732,11 @@ request_slowlog_timeout = 5s
 slowlog = /usr/local/php/var/log/slow.log
 EOF
 
-  if [[ "$php_version" =~ ^8\.5\. ]]; then
+  if [[ "$php_version" =~ ^8\.[56]\. ]]; then
     printf '%s\n' 'php_admin_value[fatal_error_backtraces] = 0' >> /usr/local/php/etc/php-fpm.conf
   fi
 
-  if [[ "$php_version" =~ ^8\.5\. ]]; then
+  if [[ "$php_version" =~ ^8\.[56]\. ]]; then
     cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=inotify.so
@@ -5738,8 +5803,10 @@ EOF
     return 1
   fi
 
-  systemctl enable php-fpm
-  systemctl start php-fpm
+  if [[ "$php_version" != 8.6.* ]]; then
+    systemctl enable php-fpm
+    systemctl start php-fpm
+  fi
 
   cd "$WNMPDIR"
   if [ ! -f "pie.phar" ]; then
@@ -5747,28 +5814,37 @@ EOF
   fi
   cp "$WNMPDIR"/pie.phar /usr/local/php/bin/pie && chmod +x /usr/local/php/bin/pie
 
-  rm -rf swoole-src
-  if [[ "$php_version" =~ ^8\.5\. ]]; then
-    if [ ! -f "$WNMPDIR/swoole.tar.gz" ]; then
-      download_with_mirrors "https://github.com/swoole/swoole-src/archive/master.tar.gz" "$WNMPDIR/swoole.tar.gz"
+  if [[ "$php_version" != 8.6.* ]]; then
+    rm -rf swoole-src
+    if [[ "$php_version" =~ ^8\.5\. ]]; then
+      if [ ! -f "$WNMPDIR/swoole.tar.gz" ]; then
+        download_with_mirrors "https://github.com/swoole/swoole-src/archive/master.tar.gz" "$WNMPDIR/swoole.tar.gz"
+      fi
+    else
+      if [ ! -f "$WNMPDIR/swoole.tar.gz" ]; then
+        download_with_mirrors "https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz" "$WNMPDIR/swoole.tar.gz"
+      fi
     fi
+
+    tar zxvf ./swoole.tar.gz
+    mv swoole-src* swoole-src
+    cd swoole-src
+    phpize
+    ./configure --with-php-config=/usr/local/php/bin/php-config \
+      --enable-openssl --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd
+    make && make install
   else
-    if [ ! -f "$WNMPDIR/swoole.tar.gz" ]; then
-      download_with_mirrors "https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz" "$WNMPDIR/swoole.tar.gz"
-    fi
+    echo "[swoole] PHP 8.6: no compatible Swoole build was found; skipping Swoole."
   fi
 
-  tar zxvf ./swoole.tar.gz
-  mv swoole-src* swoole-src
-  cd swoole-src
-  phpize
-  ./configure --with-php-config=/usr/local/php/bin/php-config \
-    --enable-openssl --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd
-  make && make install
-
-  /usr/local/php/bin/pie install phpredis/phpredis
-  /usr/local/php/bin/pie install arnaud-lb/inotify
-  /usr/local/php/bin/pie install apcu/apcu
+  if [[ "$php_version" == 8.6.* ]]; then
+    wnmp_install_php86_extensions || return 1
+    systemctl enable php-fpm
+  else
+    /usr/local/php/bin/pie install phpredis/phpredis
+    /usr/local/php/bin/pie install arnaud-lb/inotify
+    /usr/local/php/bin/pie install apcu/apcu
+  fi
   if ! systemctl restart php-fpm || ! systemctl is-active --quiet php-fpm; then
     echo "[update][ERROR] PHP-FPM restart failed; the update is not complete."
     return 1
@@ -7388,13 +7464,14 @@ phpmyadmin_install='n'
 # Component mode is selected by the interactive submenu or `wnmp install <component>`.
 if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]]; then
   echo "Please select a PHP version.:"
-  select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" ; do
+  select phpselcect in "Do not install PHP" "php8.2" "php8.3" "php8.4" "php8.5" "php8.6 (no Swoole)" ; do
     case $phpselcect in
       "Do not install PHP") php_version='0'; break ;;
       "php8.2") php_version='8.2.36'; break ;;
       "php8.3") php_version='8.3.37'; break ;;
       "php8.4") php_version='8.4.28'; break ;;
       "php8.5") php_version='8.5.13'; break ;;
+      "php8.6 (no Swoole)") php_version='8.6.0'; break ;;
       *) echo "Invalid option $REPLY";;
     esac
   done
@@ -7447,7 +7524,9 @@ ensure_group www
 ensure_user  www www
 
 if [ "$php_version" != "0" ]; then
-  wnmp_ensure_liburing || exit 1
+  if [[ "$php_version" != 8.6.* ]]; then
+    wnmp_ensure_liburing || exit 1
+  fi
   cd "$WNMPDIR"
   purge_php || true
   php_tar="php-${php_version}.tar.gz"
@@ -7565,13 +7644,13 @@ request_slowlog_timeout = 5s
 slowlog = /usr/local/php/var/log/slow.log
 EOF
 
-  if [[ "$php_version" =~ ^8\.5\. ]]; then
+  if [[ "$php_version" =~ ^8\.[56]\. ]]; then
     printf '%s\n' 'php_admin_value[fatal_error_backtraces] = 0' >> /usr/local/php/etc/php-fpm.conf
   fi
 
 php_version="${php_version:-$("$PHP" -r 'echo PHP_VERSION;')}"
 
-if [[  "$php_version" =~ ^8\.5\. ]]; then
+if [[  "$php_version" =~ ^8\.[56]\. ]]; then
   cat <<'EOF' > /usr/local/php/etc/php.ini
 extension=swoole.so
 extension=inotify.so
@@ -7739,8 +7818,10 @@ fi
     exit 1
   fi
 
-  systemctl enable php-fpm
-  systemctl start php-fpm
+  if [[ "$php_version" != 8.6.* ]]; then
+    systemctl enable php-fpm
+    systemctl start php-fpm
+  fi
 
   cd "$WNMPDIR"
 
@@ -7752,31 +7833,44 @@ fi
   cp "$WNMPDIR"/pie.phar /usr/local/php/bin/pie && chmod +x /usr/local/php/bin/pie
 
 
-rm -rf swoole-src
-if [[ "$php_version" =~ ^8\.5\. ]]; then
-  if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
+if [[ "$php_version" != 8.6.* ]]; then
+  rm -rf swoole-src
+  if [[ "$php_version" =~ ^8\.5\. ]]; then
+    if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
 
-     download_with_mirrors "https://github.com/swoole/swoole-src/archive/master.tar.gz" "$WNMPDIR/swoole.tar.gz"
-  fi 
-else
-  if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
-    download_with_mirrors "https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz" "$WNMPDIR/swoole.tar.gz"
-    
+       download_with_mirrors "https://github.com/swoole/swoole-src/archive/master.tar.gz" "$WNMPDIR/swoole.tar.gz"
+    fi
+  else
+    if [ ! -f ""$WNMPDIR"/swoole.tar.gz" ]; then
+      download_with_mirrors "https://github.com/swoole/swoole-src/archive/refs/tags/v6.1.4.tar.gz" "$WNMPDIR/swoole.tar.gz"
+
+    fi
+
   fi
-  
+
+    tar zxvf ./swoole.tar.gz && \
+    mv swoole-src* swoole-src && \
+    cd swoole-src && \
+    phpize && \
+    ./configure --with-php-config=/usr/local/php/bin/php-config \
+    --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
+    make && make install
+else
+  echo "[swoole] PHP 8.6: no compatible Swoole build was found; skipping Swoole."
 fi
-  
-  tar zxvf ./swoole.tar.gz && \
-  mv swoole-src* swoole-src && \
-  cd swoole-src && \
-  phpize && \
-  ./configure --with-php-config=/usr/local/php/bin/php-config \
-  --enable-openssl  --enable-mysqlnd --enable-swoole-curl --enable-cares --enable-iouring --enable-zstd && \
-  make && make install
-  
-  /usr/local/php/bin/pie install phpredis/phpredis
-  /usr/local/php/bin/pie install arnaud-lb/inotify
-  /usr/local/php/bin/pie install apcu/apcu
+
+  if [[ "$php_version" == 8.6.* ]]; then
+    wnmp_install_php86_extensions || exit 1
+    systemctl enable php-fpm
+    if ! systemctl restart php-fpm || ! systemctl is-active --quiet php-fpm; then
+      echo "[install][ERROR] PHP-FPM restart failed after installing PHP 8.6 extensions."
+      exit 1
+    fi
+  else
+    /usr/local/php/bin/pie install phpredis/phpredis
+    /usr/local/php/bin/pie install arnaud-lb/inotify
+    /usr/local/php/bin/pie install apcu/apcu
+  fi
 
 else
   echo 'Do not install PHP'

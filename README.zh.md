@@ -53,9 +53,29 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 <pre style="color:#DC2626;">chown -R www:www /home/wwwroot/站点目录</pre>
 <p style="color:#DC2626;">执行前请确认路径无误。必须完成权限组切换，网站才能正常运行。</p>
 
-## PHP 安全更新 — WNMP v1.72（2026-11-19）
+## PHP 8.6.0 — WNMP v1.73（2026-11-19）
 
-PHP 官方于 2026-11-19 发布安全版本 8.5.13、8.4.28、8.3.37、8.2.36。WNMP v1.72 的全量安装、独立 PHP 安装及 PHP 组件升级默认使用这些补丁版本。
+全量安装及 `wnmp install php` 已加入 **PHP 8.6.0 正式版**。已有环境请以 root 身份执行：
+
+```sh
+wnmp update
+wnmp update php
+/usr/local/php/bin/php -v
+```
+
+升级提示目标版本时，**从 PHP 8.2–8.5 切换请明确输入 `8.6.0`**；已安装 PHP 8.6 则可直接回车选择 8.6.0。旧系列仍默认升级至各自的安全版本：8.5.13、8.4.28、8.3.37、8.2.36。仅更新 WNMP 脚本不会自动升级 PHP。
+
+**PHP 8.6 不包含 Swoole**，菜单显示 `php8.6(没有swoole)`。实测 6 次未修改源码的构建全部失败：Swoole v6.1.4、v6.2.6 完整与最小配置、v6.3.0-rc1，以及 master 提交 `c3a09d3552cecb8fc5e518b8857ef2432bfb5ea2` 的完整与最小配置。PHP 8.6 分支跳过 Swoole 及 liburing 编译，并清理恢复 php.ini 中有效的 Swoole 加载指令；OPcache 使用 PHP 8.6 内置版本，移除旧的 `zend_extension=opcache` 加载指令。依赖 Swoole 的应用请继续使用 PHP 8.2–8.5。
+
+Redis 6.3.0、APCu 5.1.28 稳定版无法在 PHP 8.6 下编译，因此仅 PHP 8.6 分支使用已实测的上游**开发快照**，固定为 Redis `5b60b125aba347159b0c9c319296fbb3c5ed9214`、APCu `fb2c942552a3f5dab7f4dea4afb5cf0831222c57`，下载后校验 SHA256。这两个快照并非稳定发行版，迁移前请先测试业务兼容性。inotify 继续通过 PIE 安装稳定版 3.0.1。PHP 8.2–8.5 的扩展安装流程不变。
+
+已在 Debian 13/WSL 中按 WNMP 的 PHP 编译参数完成隔离构建，PHP-FPM 连续处理两次 FastCGI 请求，Redis/APCu/inotify 及内置 OPcache 均加载成功，APCu 读写和 inotify 监听实测通过。这些结果仅覆盖本次环境，不代表所有业务或发行版；测试未替换现有 PHP。
+
+官方发布说明：[PHP 8.6.0](https://www.php.net/releases/8.6/en.php)。
+
+## PHP 安全更新 — WNMP v1.73（2026-11-19）
+
+PHP 官方于 2026-11-19 发布安全版本 8.5.13、8.4.28、8.3.37、8.2.36。WNMP v1.73 的全量安装、独立 PHP 安装及 PHP 组件升级默认使用这些补丁版本。
 
 已有环境请以 root 身份逐条执行以下命令。PHP 升级提示输入版本号时，直接回车接受当前已安装 PHP 系列对应的安全补丁版本。
 
@@ -68,6 +88,8 @@ wnmp update php
 确认 PHP 版本显示为相应系列的 8.5.13、8.4.28、8.3.37 或 8.2.36。**仅更新 WNMP 脚本不会自动升级已安装的 PHP。** 安全修复详情请查阅 [PHP 官方 ChangeLog](https://www.php.net/ChangeLog-8.php)。
 
 ## 更新记录
+
+v1.73 2026-11-19 新增 PHP 8.6.0 正式版的全量/独立安装、组件升级及 PHP/FPM 配置分支，PHP 8.2–8.5 默认版本继续为 8.2.36、8.3.37、8.4.28、8.5.13。PHP 8.6 下的 6 次 Swoole 构建实测全部失败（v6.1.4、v6.2.6 完整/最小配置、v6.3.0-rc1、master 完整/最小配置），菜单标为 php8.6(没有swoole)，跳过 Swoole/liburing，并清理恢复配置中的 Swoole 加载指令。PHP 8.6 使用内置 OPcache。Redis 6.3.0、APCu 5.1.28 同样编译失败，PHP 8.6 改用已实测、固定提交并校验 SHA256 的上游开发快照：Redis 5b60b125aba3、APCu fb2c942552a3；inotify 3.0.1 稳定版通过。隔离 PHP-FPM/FastCGI、APCu 读写和 inotify 监听实测通过。已有用户先执行 wnmp update，再执行 wnmp update php；旧系列切换时输入 8.6.0，已安装 8.6 则可直接回车。依赖 Swoole 的应用请保留 PHP 8.2–8.5。中英文脚本、README、官网页面及版本元数据同步为 v1.73。
 
 v1.72 2026-11-19 PHP 安全更新：全量安装、独立 PHP 安装及 wnmp update php 的四个系列默认版本统一更新为 PHP 8.5.13、8.4.28、8.3.37、8.2.36，均为 PHP 官方于 2026-11-19 发布的安全版本。修复包括 PHP-FPM 请求走私（CVE-2026-129289）、PHP-FPM epoll 释放后使用导致的本地提权（CVE-2026-129291），以及时区缓存释放后使用导致的远程代码执行（CVE-2026-129496）；完整修复清单及受影响分支请查阅 PHP 官方 ChangeLog。已有用户请先执行 wnmp update，再执行 wnmp update php，回车接受当前已安装 PHP 系列对应的默认安全补丁版本，完成后使用 /usr/local/php/bin/php -v 核验。仅更新 WNMP 脚本不会自动升级已安装的 PHP。PHP 支持范围仍为 8.2–8.5。中英文脚本、README、官网版本标识、下载示例及版本元数据同步更新为 v1.72。
 
@@ -196,7 +218,7 @@ v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和
 ## ✨ 核心特性
 
 - **即装即用的 Web 运行环境**  
-  编译安装 Nginx 1.31.x（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.5 与 MariaDB 10.6 / 10.11 / 11.8。
+  编译安装 Nginx 1.31.x（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.6（PHP 8.6 没有 Swoole）与 MariaDB 10.6 / 10.11 / 11.8。
 
 - **内核 / 网络调优**  
   启用 BBR/FQ，优化 `somaxconn` 与文件句柄，关闭 THP，自动写入 sysctl 与 limits。
