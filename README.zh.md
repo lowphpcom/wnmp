@@ -53,7 +53,25 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 <pre style="color:#DC2626;">chown -R www:www /home/wwwroot/站点目录</pre>
 <p style="color:#DC2626;">执行前请确认路径无误。必须完成权限组切换，网站才能正常运行。</p>
 
+## PHP 安全更新 — WNMP v1.72（2026-11-19）
+
+PHP 官方于 2026-11-19 发布安全版本 8.5.13、8.4.28、8.3.37、8.2.36。WNMP v1.72 的全量安装、独立 PHP 安装及 PHP 组件升级默认使用这些补丁版本。
+
+已有环境请以 root 身份逐条执行以下命令。PHP 升级提示输入版本号时，直接回车接受当前已安装 PHP 系列对应的安全补丁版本。
+
+```sh
+wnmp update
+wnmp update php
+/usr/local/php/bin/php -v
+```
+
+确认 PHP 版本显示为相应系列的 8.5.13、8.4.28、8.3.37 或 8.2.36。**仅更新 WNMP 脚本不会自动升级已安装的 PHP。** 安全修复详情请查阅 [PHP 官方 ChangeLog](https://www.php.net/ChangeLog-8.php)。
+
 ## 更新记录
+
+v1.72 2026-11-19 PHP 安全更新：全量安装、独立 PHP 安装及 wnmp update php 的四个系列默认版本统一更新为 PHP 8.5.13、8.4.28、8.3.37、8.2.36，均为 PHP 官方于 2026-11-19 发布的安全版本。修复包括 PHP-FPM 请求走私（CVE-2026-129289）、PHP-FPM epoll 释放后使用导致的本地提权（CVE-2026-129291），以及时区缓存释放后使用导致的远程代码执行（CVE-2026-129496）；完整修复清单及受影响分支请查阅 PHP 官方 ChangeLog。已有用户请先执行 wnmp update，再执行 wnmp update php，回车接受当前已安装 PHP 系列对应的默认安全补丁版本，完成后使用 /usr/local/php/bin/php -v 核验。仅更新 WNMP 脚本不会自动升级已安装的 PHP。PHP 支持范围仍为 8.2–8.5。中英文脚本、README、官网版本标识、下载示例及版本元数据同步更新为 v1.72。
+
+PHP 官方更新说明：https://www.php.net/ChangeLog-8.php
 
 v1.71 2026-11-19 紧急 Nginx 安全更新：全量安装、独立安装及 wnmp update nginx 的默认 Nginx 版本统一升级为 1.31.9。Nginx 官方于 2026-11-18 发布 1.31.9，修复 try_files/alias 缓冲区溢出（CVE-2026-125283）、HTTP/2 流控制窗口溢出（CVE-2026-123007）、HTTP/2 和 HTTP/3 释放后使用（CVE-2026-123633、CVE-2026-121810）、resolver 释放后使用（CVE-2026-123634）、邮件代理释放后使用（CVE-2026-113425）、stream 客户端证书校验问题（CVE-2026-120967）、PROXY 协议 v2 崩溃（CVE-2026-120993）、stream ssl_preread 安全限制绕过（CVE-2026-123640）及 TLS 请求体读取死循环（CVE-2026-118899）。同时拒绝缺少冒号的请求头及分块请求体中过多的框架开销。Nginx 与 PHP 的下载、缓存判断和解压统一使用带目标版本号的源码包文件名，例如 nginx-1.31.9.tar.gz 和 php-8.5.12.tar.gz。安装时仅复用目标版本对应的压缩包，不再读取旧的 nginx.tar.gz、php.tar.gz；源码目录及后续编译、安装和配置流程沿用原逻辑。已有用户请先运行 wnmp update，再运行 wnmp update nginx 并接受默认版本 1.31.9，完成后使用 /usr/local/nginx/sbin/nginx -v 核验；仅更新 WNMP 脚本不会自动升级已安装的 Nginx。中英文脚本版本、说明文档、官网页面及版本元数据同步更新为 v1.71。
 

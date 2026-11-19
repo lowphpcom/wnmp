@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.71
+# Version: 1.72
+# v1.72 2026-11-19 PHP 安全更新：全量安装、独立 PHP 安装及 wnmp update php 的四个系列默认版本统一更新为 PHP 8.5.13、8.4.28、8.3.37、8.2.36，均为 PHP 官方于 2026-11-19 发布的安全版本。修复包括 PHP-FPM 请求走私（CVE-2026-129289）、PHP-FPM epoll 释放后使用导致的本地提权（CVE-2026-129291），以及时区缓存释放后使用导致的远程代码执行（CVE-2026-129496）；完整修复清单及受影响分支请查阅 PHP 官方 ChangeLog。已有用户请先执行 wnmp update，再执行 wnmp update php，回车接受当前已安装 PHP 系列对应的默认安全补丁版本，完成后使用 /usr/local/php/bin/php -v 核验。仅更新 WNMP 脚本不会自动升级已安装的 PHP。PHP 支持范围仍为 8.2–8.5。中英文脚本、README、官网版本标识、下载示例及版本元数据同步更新为 v1.72。
 # v1.71 2026-11-19 紧急 Nginx 安全更新：全量安装、独立安装及 wnmp update nginx 的默认 Nginx 版本统一升级为 1.31.9。Nginx 官方于 2026-11-18 发布 1.31.9，修复 try_files/alias 缓冲区溢出（CVE-2026-125283）、HTTP/2 流控制窗口溢出（CVE-2026-123007）、HTTP/2 和 HTTP/3 释放后使用（CVE-2026-123633、CVE-2026-121810）、resolver 释放后使用（CVE-2026-123634）、邮件代理释放后使用（CVE-2026-113425）、stream 客户端证书校验问题（CVE-2026-120967）、PROXY 协议 v2 崩溃（CVE-2026-120993）、stream ssl_preread 安全限制绕过（CVE-2026-123640）及 TLS 请求体读取死循环（CVE-2026-118899）。同时拒绝缺少冒号的请求头及分块请求体中过多的框架开销。Nginx 与 PHP 的下载、缓存判断和解压统一使用带目标版本号的源码包文件名，例如 nginx-1.31.9.tar.gz 和 php-8.5.12.tar.gz。安装时仅复用目标版本对应的压缩包，不再读取旧的 nginx.tar.gz、php.tar.gz；源码目录及后续编译、安装和配置流程沿用原逻辑。已有用户请先运行 wnmp update，再运行 wnmp update nginx 并接受默认版本 1.31.9，完成后使用 /usr/local/nginx/sbin/nginx -v 核验；仅更新 WNMP 脚本不会自动升级已安装的 Nginx。中英文脚本版本、说明文档、官网页面及版本元数据同步更新为 v1.71。
 # v1.70 2026-11-06 SSL 管理新增第 7 项及 wnmp ssl force-ip [IPv4]，支持强制重签 IP 证书，也支持首次申请失败、尚无证书时重新申请。首次安装 Nginx 与 IP 重签统一优先读取本机网卡公网 IPv4，再绕过代理查询外网 IP API；探测失败后直接提示输入公网 IPv4。识别结果可手动覆盖，命令行参数或 WNMP_PUBLIC_IP 可显式指定 NAT 映射地址。校验并拒绝无效、内网及保留地址，避免将 unknown 用于证书申请。签发明确使用 ECC 和 Let's Encrypt shortlived 短效证书配置。恢复成功后校验证书有效期、IP 和私钥匹配，启用 Nginx 默认站点 HTTPS，记录当前 IP 并安装每日续签任务。签发、部署或 Nginx 配置检查失败时恢复原文件并尝试恢复原服务；Nginx 启动失败也会尝试回滚。每日续签支持恢复缺失的 IP 证书，并跳过非当前 IP 的旧记录。证书检测、每日续签及 IP 重签自动清理名称恰为 unknown_ecc、unknown 的无效 ACME 记录并报告清理结果。内网/NAT 服务器仍需保证公网 TCP 80 端口能访问本机。域名证书签发流程保持不变。同步中英文脚本、说明文档、本地官网页面及版本元数据。
 # v1.69 2026-10-23 菜单 11 组件更新新增 MariaDB 升级和降级（wnmp update mariadb）。全新安装与更新统一提供 MariaDB 10.11、11.4、11.8、12.3，默认完整版本分别为 10.11.19、11.4.13、11.8.9、12.3.3。超出 Mroonga 兼容系列、版本号不完整或与所选系列不一致、源码包无效时友好提示并中止；MariaDB 12.3 要求 Mroonga 16.12 或更新版本，并检查 Mroonga 源码包缓存。更新使用现有本地管理凭据，不再要求输入 root 密码；停库前编译并核验目标版本，在 /home/wnmp-backups/mariadb/ 保留全库 SQL、程序、配置及停库后的数据目录备份。恢复期间暂停数据库访问，使用目标版本初始化的系统表，自动恢复业务数据库、存储过程、事件、触发器、账户、角色和权限，失败时尝试恢复旧版本。自定义时区表、复制配置和第三方插件/UDF 等额外系统元数据需要单独迁移；Mroonga 会自动重编译。菜单 20 新增修改 root 密码（wnmp mysqlpass），隐藏输入并二次确认，保留本地 socket 认证；全新安装仍要求设置 root 密码。同步中英文脚本及文档。
@@ -31,9 +32,31 @@ PUBLIC_IP=""
 IS_CN=0
 PROXY_MODE=${PROXY_MODE:-}
 WNMP_INSTALL_COMPONENT="all"
-rm -rf /tmp/wnmp_proxy_choice
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 TARGET_PATH="/usr/local/bin/wnmp"
+
+# 在覆盖全局命令或更改任何启动文件前检查版本。
+wnmp_check_global_version() {
+  local local_version global_version global_path
+  local_version="$(sed -n 's/^# Version:[[:space:]]*//p' "$SCRIPT_PATH" | head -n1 | tr -d '\r')"
+  [[ "$local_version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || return 0
+
+  for global_path in "$TARGET_PATH" "$(type -P wnmp || true)"; do
+    [[ -f "$global_path" && -r "$global_path" && ! "$global_path" -ef "$SCRIPT_PATH" ]] || continue
+    global_version="$(sed -n 's/^# Version:[[:space:]]*//p' "$global_path" | head -n1 | tr -d '\r')"
+    [[ "$global_version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || continue
+    if [[ "$global_version" != "$local_version" &&
+          "$(printf '%s\n%s\n' "$local_version" "$global_version" | sort -V | tail -n1)" == "$global_version" ]]; then
+      echo "[init][ERROR] 拒绝执行旧版 WNMP 脚本（${local_version}），全局命令版本更新（${global_version}）：${global_path}" >&2
+      echo "[init] 请直接运行全局命令：${global_path}" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
+wnmp_check_global_version || exit 1
+rm -rf /tmp/wnmp_proxy_choice
 
 [ -e "${TARGET_PATH}" ] && [ "$(readlink -f "${TARGET_PATH}")" != "${SCRIPT_PATH}" ] && rm -f "${TARGET_PATH}"
 [ ! -e "${TARGET_PATH}" ] && cp "${SCRIPT_PATH}" "${TARGET_PATH}" && chmod +x "${TARGET_PATH}"
@@ -71,7 +94,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.71"
+  green  " [init] Version: 1.72"
 green  "============================================================"
 echo
 sleep 1
@@ -5159,6 +5182,53 @@ wnmp_install_build_deps() {
     cmake ninja-build bison libncurses-dev libfreetype-dev unzip
 }
 
+# Swoole 的 io_uring 支持需要比部分发行版仓库更新的 liburing。
+wnmp_ensure_liburing() {
+  local required_version="2.8" build_version="2.9"
+  local archive="$WNMPDIR/liburing-${build_version}.tar.gz"
+  local source_dir="$WNMPDIR/liburing-${build_version}"
+
+  export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  if ! command -v pkg-config >/dev/null 2>&1; then
+    echo "[liburing][ERROR] 检查 Swoole 构建依赖需要 pkg-config。"
+    return 1
+  fi
+  if pkg-config --atleast-version="$required_version" liburing; then
+    echo "[liburing] 使用 liburing $(pkg-config --modversion liburing)。"
+    return 0
+  fi
+
+  echo "[liburing] Swoole 需要 liburing >= ${required_version}，正在安装 ${build_version}..."
+  if [[ ! -s "$archive" ]] || ! tar -tzf "$archive" >/dev/null 2>&1; then
+    if ! download_with_mirrors "https://github.com/axboe/liburing/archive/refs/tags/liburing-${build_version}.tar.gz" "$archive" "liburing download"; then
+      echo "[liburing][ERROR] liburing ${build_version} 下载失败。"
+      return 1
+    fi
+  fi
+
+  if ! (
+    rm -rf "$source_dir" &&
+    mkdir -p "$source_dir" &&
+    tar -xzf "$archive" --strip-components=1 -C "$source_dir" &&
+    cd "$source_dir" &&
+    ./configure --prefix=/usr/local --libdir=/usr/local/lib --libdevdir=/usr/local/lib &&
+    make -j"$(nproc)" &&
+    make install
+  ); then
+    echo "[liburing][ERROR] liburing ${build_version} 编译或安装失败。"
+    return 1
+  fi
+  if ! ldconfig; then
+    echo "[liburing][ERROR] 刷新共享库缓存失败。"
+    return 1
+  fi
+  if ! pkg-config --atleast-version="$required_version" liburing; then
+    echo "[liburing][ERROR] pkg-config 仍无法找到 liburing >= ${required_version}。"
+    return 1
+  fi
+  echo "[liburing] 使用 liburing $(pkg-config --modversion liburing)。"
+}
+
 wnmp_update_nginx() {
   local nginx_version old_nginx_version
   old_nginx_version="$(wnmp_current_nginx_version)"
@@ -5276,10 +5346,10 @@ wnmp_update_php() {
   echo "[update] 当前 PHP 版本：${old_php_version}"
 
   case "$old_php_version" in
-    8.5.*) default_php_version="8.5.12" ;;
-    8.4.*) default_php_version="8.4.27" ;;
-    8.3.*) default_php_version="8.3.36" ;;
-    8.2.*) default_php_version="8.2.35" ;;
+    8.5.*) default_php_version="8.5.13" ;;
+    8.4.*) default_php_version="8.4.28" ;;
+    8.3.*) default_php_version="8.3.37" ;;
+    8.2.*) default_php_version="8.2.36" ;;
     *)
       echo "[update][ERROR] 无法为 PHP ${old_php_version} 选择默认升级版本；需要已安装 PHP 8.2、8.3、8.4 或 8.5。"
       return 1
@@ -5303,6 +5373,10 @@ wnmp_update_php() {
   fi
   if ! wnmp_install_build_deps; then
     echo "[update][ERROR] PHP 构建依赖安装失败，旧版本未删除。"
+    return 1
+  fi
+  if ! wnmp_ensure_liburing; then
+    echo "[update][ERROR] Swoole 依赖 liburing 准备失败，旧 PHP 安装未删除。"
     return 1
   fi
   ensure_group www
@@ -7155,10 +7229,10 @@ if [[ "$WNMP_INSTALL_COMPONENT" == "all" || "$WNMP_INSTALL_COMPONENT" == "php" ]
   select phpselcect in "不安装php" "php8.2" "php8.3" "php8.4" "php8.5" ; do
     case $phpselcect in
       "不安装php") php_version='0'; break ;;
-      "php8.2") php_version='8.2.35'; break ;;
-      "php8.3") php_version='8.3.36'; break ;;
-      "php8.4") php_version='8.4.27'; break ;;
-      "php8.5") php_version='8.5.12'; break ;;
+      "php8.2") php_version='8.2.36'; break ;;
+      "php8.3") php_version='8.3.37'; break ;;
+      "php8.4") php_version='8.4.28'; break ;;
+      "php8.5") php_version='8.5.13'; break ;;
       *) echo "无效选项 $REPLY";;
     esac
   done
@@ -7210,18 +7284,8 @@ export CURL_RETRY_DELAY=2
 ensure_group www
 ensure_user  www www
 
-cd /usr/local/src
-rm -rf liburing
-git clone https://github.com/axboe/liburing.git
-cd liburing
-git checkout liburing-2.9
-
-./configure --prefix=/usr/local
-make -j"$(nproc)"
-make install
-ldconfig
-
 if [ "$php_version" != "0" ]; then
+  wnmp_ensure_liburing || exit 1
   cd "$WNMPDIR"
   purge_php || true
   php_tar="php-${php_version}.tar.gz"

@@ -57,7 +57,25 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 <pre style="color:#DC2626;">chown -R www:www /home/wwwroot/your-site</pre>
 <p style="color:#DC2626;">Confirm that the path is correct before running the command. The ownership change must be applied for the site to run normally.</p>
 
+## PHP Security Update — WNMP v1.72 (2026-11-19)
+
+PHP 8.5.13, 8.4.28, 8.3.37 and 8.2.36 are the security releases published on 2026-11-19. WNMP v1.72 uses these patch versions for full/standalone PHP installations and PHP component upgrades.
+
+Existing installations: run the following commands as root, one at a time. At the PHP upgrade prompt, press Enter to accept the security release for your installed PHP series.
+
+```sh
+wnmp update
+wnmp update php
+/usr/local/php/bin/php -v
+```
+
+Verify that PHP reports 8.5.13, 8.4.28, 8.3.37 or 8.2.36 for the corresponding series. **Updating the WNMP script alone does not upgrade an installed PHP.** See the [official PHP ChangeLog](https://www.php.net/ChangeLog-8.php) for the security fixes.
+
 ## Update Log
+
+v1.72 2026-11-19 PHP security update: changed the PHP defaults for full installations, standalone PHP installations and wnmp update php to 8.5.13, 8.4.28, 8.3.37 and 8.2.36, released by PHP on 2026-11-19. Fixes include PHP-FPM request smuggling (CVE-2026-129289), PHP-FPM epoll use-after-free/local privilege escalation (CVE-2026-129291), and timezone-cache use-after-free/remote code execution (CVE-2026-129496); consult the official PHP ChangeLog for all fixes and affected branches. Existing users should run wnmp update, then wnmp update php, accept the default patch release for their installed PHP series, and verify with /usr/local/php/bin/php -v. Updating the WNMP script alone does not upgrade an installed PHP. PHP remains limited to series 8.2–8.5. Synchronized English/Chinese scripts, READMEs, website version badges, download examples and release metadata to v1.72.
+
+Official PHP ChangeLog: https://www.php.net/ChangeLog-8.php
 
 v1.71 2026-11-19 Urgent Nginx security update: changed the default Nginx version to 1.31.9 for full/standalone installations and wnmp update nginx. Nginx 1.31.9 was released on 2026-11-18 with fixes for try_files/alias buffer overflow (CVE-2026-125283), HTTP/2 flow-control overflow (CVE-2026-123007), HTTP/2 and HTTP/3 use-after-free (CVE-2026-123633, CVE-2026-121810), resolver use-after-free (CVE-2026-123634), mail proxy use-after-free (CVE-2026-113425), stream client-certificate verification (CVE-2026-120967), PROXY protocol v2 crashes (CVE-2026-120993), stream ssl_preread security restriction bypass (CVE-2026-123640), and TLS request-body infinite loops (CVE-2026-118899). It also rejects header lines without a colon and excessive chunked-body framing overhead. Nginx and PHP use versioned source archive filenames for downloading, cache lookup and extraction (for example, nginx-1.31.9.tar.gz and php-8.5.12.tar.gz). Installation reuses only an archive matching the selected version; legacy nginx.tar.gz and php.tar.gz are ignored. Source directories and subsequent build, installation and configuration steps are unchanged. Run wnmp update, then wnmp update nginx and accept 1.31.9; verify with /usr/local/nginx/sbin/nginx -v. Updating the WNMP script alone does not upgrade an installed Nginx. English/Chinese script versions, documentation, website pages and release metadata are synchronized to v1.71.
 
