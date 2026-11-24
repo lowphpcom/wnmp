@@ -53,7 +53,25 @@ WNMP 并不是“把 Nginx + PHP + MariaDB 打成容器”，而是为了在干�
 <pre style="color:#DC2626;">chown -R www:www /home/wwwroot/站点目录</pre>
 <p style="color:#DC2626;">执行前请确认路径无误。必须完成权限组切换，网站才能正常运行。</p>
 
-## PHP 8.6.0 — WNMP v1.73（2026-11-19）
+## Nginx 安全更新 — WNMP v1.74（2026-11-24）
+
+Nginx 于 **2026-11-23** 发布主线版 **1.31.10** 和稳定版 **1.30.8**，修复 TLS 1.3 启用 `ssl_early_data` 时 CPU 过度消耗漏洞（**CVE-2026-132779**，中危；受影响版本：1.21.4–1.31.9）。1.31.10 还修复与 SSL 后端建立连接时可能持续占用 CPU 的问题。
+
+WNMP v1.74 的三份脚本（`wnmp.sh`、`zh/wnmp.sh` 及独立维护的 `zh/wnmp8.1.sh`），全量安装、独立 Nginx 安装及组件升级均默认使用 **1.31.10**。已有环境请以 root 身份逐条执行：
+
+```sh
+wnmp update
+wnmp update nginx
+/usr/local/nginx/sbin/nginx -v
+```
+
+升级提示目标版本时，直接回车接受 **1.31.10**；继续使用稳定分支可手动输入 **1.30.8**。完成后应显示 `nginx/1.31.10` 或所选稳定版。**仅更新 WNMP 脚本不会自动升级已安装的 Nginx。** PHP 8.1 独立版继续使用自身的脚本更新渠道，请更新对应独立脚本。
+
+源码缓存继续使用完整的带版本号文件名，例如 `nginx-1.31.10.tar.gz`。PHP 默认版本、扩展选择及安全源码固定提交保持不变。
+
+详情参阅 [Nginx 官方更新说明](https://nginx.org/en/CHANGES) 和 [安全公告](https://nginx.org/en/security_advisories.html)。
+
+## PHP 8.6.0 — WNMP v1.74（2026-11-24）
 
 全量安装及 `wnmp install php` 已加入 **PHP 8.6.0 正式版**。已有环境请以 root 身份执行：
 
@@ -73,9 +91,9 @@ Redis 6.3.0、APCu 5.1.28 稳定版无法在 PHP 8.6 下编译，因此仅 PHP 8
 
 官方发布说明：[PHP 8.6.0](https://www.php.net/releases/8.6/en.php)。
 
-## PHP 安全更新 — WNMP v1.73（2026-11-19）
+## PHP 安全更新 — WNMP v1.74（2026-11-24）
 
-PHP 官方于 2026-11-19 发布安全版本 8.5.13、8.4.28、8.3.37、8.2.36。WNMP v1.73 的全量安装、独立 PHP 安装及 PHP 组件升级默认使用这些补丁版本。
+PHP 官方于 2026-11-19 发布安全版本 8.5.13、8.4.28、8.3.37、8.2.36。WNMP v1.74 的全量安装、独立 PHP 安装及 PHP 组件升级默认使用这些补丁版本。
 
 已有环境请以 root 身份逐条执行以下命令。PHP 升级提示输入版本号时，直接回车接受当前已安装 PHP 系列对应的安全补丁版本。
 
@@ -88,6 +106,8 @@ wnmp update php
 确认 PHP 版本显示为相应系列的 8.5.13、8.4.28、8.3.37 或 8.2.36。**仅更新 WNMP 脚本不会自动升级已安装的 PHP。** 安全修复详情请查阅 [PHP 官方 ChangeLog](https://www.php.net/ChangeLog-8.php)。
 
 ## 更新记录
+
+v1.74 2026-11-24 Nginx 安全更新：中英文脚本及 PHP 8.1 独立脚本的全量/独立安装和 wnmp update nginx 默认版本统一更新为 1.31.10。该版本于 2026-11-23 发布，修复 TLS 1.3 启用 ssl_early_data 时 CPU 过度消耗漏洞（CVE-2026-132779），并修复与 SSL 后端建立连接时可能持续占用 CPU 的问题。稳定分支对应修复版本为 1.30.8，可在升级提示中手动输入。已有用户先执行 wnmp update，再执行 wnmp update nginx，回车接受 1.31.10，完成后使用 /usr/local/nginx/sbin/nginx -v 核验；仅更新脚本不会自动升级已安装的 Nginx。源码缓存仍使用带版本号文件名，PHP 默认版本、扩展选择及安全源码固定提交保持不变。三份脚本、中英文 README、官网页面及版本元数据统一更新为 v1.74。
 
 v1.73 2026-11-19 新增 PHP 8.6.0 正式版的全量/独立安装、组件升级及 PHP/FPM 配置分支，PHP 8.2–8.5 默认版本继续为 8.2.36、8.3.37、8.4.28、8.5.13。PHP 8.6 下的 6 次 Swoole 构建实测全部失败（v6.1.4、v6.2.6 完整/最小配置、v6.3.0-rc1、master 完整/最小配置），菜单标为 php8.6(没有swoole)，跳过 Swoole/liburing，并清理恢复配置中的 Swoole 加载指令。PHP 8.6 使用内置 OPcache。Redis 6.3.0、APCu 5.1.28 同样编译失败，PHP 8.6 改用已实测、固定提交并校验 SHA256 的上游开发快照：Redis 5b60b125aba3、APCu fb2c942552a3；inotify 3.0.1 稳定版通过。隔离 PHP-FPM/FastCGI、APCu 读写和 inotify 监听实测通过。已有用户先执行 wnmp update，再执行 wnmp update php；旧系列切换时输入 8.6.0，已安装 8.6 则可直接回车。依赖 Swoole 的应用请保留 PHP 8.2–8.5。中英文脚本、README、官网页面及版本元数据同步为 v1.73。
 
@@ -218,7 +238,7 @@ v1.01 支持swoole最新版本 例如6.2.0-dev 安装部署在PHP8.5，官网和
 ## ✨ 核心特性
 
 - **即装即用的 Web 运行环境**  
-  编译安装 Nginx 1.31.x（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.6（PHP 8.6 没有 Swoole）与 MariaDB 10.6 / 10.11 / 11.8。
+  编译安装 Nginx 1.31.10（含 dav-ext/http2/stream 模块），支持 PHP 8.2–8.6（PHP 8.6 没有 Swoole）与 MariaDB 10.6 / 10.11 / 11.8。
 
 - **内核 / 网络调优**  
   启用 BBR/FQ，优化 `somaxconn` 与文件句柄，关闭 THP，自动写入 sysctl 与 limits。

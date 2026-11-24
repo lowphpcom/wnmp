@@ -3,7 +3,8 @@
 # Copyright (C) 2026 wnmp.org
 # Website: https://wnmp.org
 # License: GNU General Public License v3.0 (GPLv3)
-# Version: 1.73
+# Version: 1.74
+# v1.74 2026-11-24 Nginx security update: full/standalone installations and wnmp update nginx now default to 1.31.10 in the English, Chinese and independent PHP 8.1 scripts. Released on 2026-11-23, 1.31.10 fixes excessive CPU usage in TLS 1.3 with ssl_early_data (CVE-2026-132779) and a separate CPU hogging issue with SSL upstream connections. The fixed stable release is 1.30.8, available by entering it manually at the upgrade prompt. Run wnmp update, then wnmp update nginx; accept 1.31.10 and verify with /usr/local/nginx/sbin/nginx -v. Updating the script alone does not upgrade an installed Nginx. Versioned source cache filenames, PHP defaults, extension choices and pinned security sources are unchanged. All three scripts, English/Chinese READMEs, website pages and release metadata are synchronized to v1.74.
 # v1.73 2026-11-19 Added PHP 8.6.0 final to full/standalone installation, component upgrades and PHP/FPM configuration. PHP 8.2–8.5 defaults remain 8.2.36, 8.3.37, 8.4.28 and 8.5.13. All six PHP 8.6 Swoole builds tested (v6.1.4, v6.2.6 full/minimal, v6.3.0-rc1, and master full/minimal) failed, so its menu reads php8.6 (no Swoole), skips Swoole/liburing and removes restored Swoole loading directives. PHP 8.6 uses built-in OPcache. Redis 6.3.0 and APCu 5.1.28 also failed to compile; PHP 8.6 instead builds tested, SHA256-verified upstream development snapshots pinned to Redis 5b60b125aba3 and APCu fb2c942552a3. Stable inotify 3.0.1 passed. Isolated PHP-FPM/FastCGI, APCu read/write and inotify watch tests passed. Run wnmp update, then wnmp update php; enter 8.6.0 to switch an older series, or press Enter if already on 8.6. Applications requiring Swoole should stay on PHP 8.2–8.5. English/Chinese scripts, READMEs, website pages and release metadata are synchronized to v1.73.
 # v1.72 2026-11-19 PHP security update: changed the PHP defaults for full installations, standalone PHP installations and wnmp update php to 8.5.13, 8.4.28, 8.3.37 and 8.2.36, released by PHP on 2026-11-19. Fixes include PHP-FPM request smuggling (CVE-2026-129289), PHP-FPM epoll use-after-free/local privilege escalation (CVE-2026-129291), and timezone-cache use-after-free/remote code execution (CVE-2026-129496); consult the official PHP ChangeLog for all fixes and affected branches. Existing users should run wnmp update, then wnmp update php, accept the default patch release for their installed PHP series, and verify with /usr/local/php/bin/php -v. Updating the WNMP script alone does not upgrade an installed PHP. PHP remains limited to series 8.2–8.5. Synchronized English/Chinese scripts, READMEs, website version badges, download examples and release metadata to v1.72.
 # v1.71 2026-11-19 Urgent Nginx security update: changed the default Nginx version to 1.31.9 for full/standalone installations and wnmp update nginx. Nginx 1.31.9 was released on 2026-11-18 with fixes for try_files/alias buffer overflow (CVE-2026-125283), HTTP/2 flow-control overflow (CVE-2026-123007), HTTP/2 and HTTP/3 use-after-free (CVE-2026-123633, CVE-2026-121810), resolver use-after-free (CVE-2026-123634), mail proxy use-after-free (CVE-2026-113425), stream client-certificate verification (CVE-2026-120967), PROXY protocol v2 crashes (CVE-2026-120993), stream ssl_preread security restriction bypass (CVE-2026-123640), and TLS request-body infinite loops (CVE-2026-118899). It also rejects header lines without a colon and excessive chunked-body framing overhead. Nginx and PHP use versioned source archive filenames for downloading, cache lookup and extraction (for example, nginx-1.31.9.tar.gz and php-8.5.12.tar.gz). Installation reuses only an archive matching the selected version; legacy nginx.tar.gz and php.tar.gz are ignored. Source directories and subsequent build, installation and configuration steps are unchanged. Run wnmp update, then wnmp update nginx and accept 1.31.9; verify with /usr/local/nginx/sbin/nginx -v. Updating the WNMP script alone does not upgrade an installed Nginx. English/Chinese script versions, documentation, website pages and release metadata are synchronized to v1.71.
@@ -95,7 +96,7 @@ green  " [init] WNMP one-click installer started"
 green  " [init] https://wnmp.org"
 green  " [init] Logs saved to: ${LOGFILE}"
 green  " [init] Start time: $(date '+%F %T')"
-  green  " [init] Version: 1.73"
+  green  " [init] Version: 1.74"
 green  "============================================================"
 echo
 sleep 1
@@ -5450,7 +5451,7 @@ wnmp_update_nginx() {
   old_nginx_version="$(wnmp_current_nginx_version)"
   echo "[update] Current Nginx version: ${old_nginx_version}"
 
-  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.9")" || return 1
+  nginx_version="$(wnmp_read_update_version "Nginx" "1.31.10")" || return 1
   local nginx_tar="nginx-${nginx_version}.tar.gz"
   local nginx_dir="nginx-${nginx_version}"
   local nginx_url="https://nginx.org/download/${nginx_tar}"
@@ -7916,7 +7917,7 @@ case "$choosenginx" in
 
     
 
-    nginx_version="1.31.9"
+    nginx_version="1.31.10"
     nginx_tar="nginx-${nginx_version}.tar.gz"
     if [ ! -f "$WNMPDIR/$nginx_tar" ]; then
       rm -rf nginx

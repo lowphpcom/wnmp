@@ -57,7 +57,25 @@ Therefore, WNMP is recommended for use on KVM virtual machines, cloud servers, o
 <pre style="color:#DC2626;">chown -R www:www /home/wwwroot/your-site</pre>
 <p style="color:#DC2626;">Confirm that the path is correct before running the command. The ownership change must be applied for the site to run normally.</p>
 
-## PHP 8.6.0 — WNMP v1.73 (2026-11-19)
+## Nginx Security Update — WNMP v1.74 (2026-11-24)
+
+Nginx **1.31.10 mainline** and **1.30.8 stable**, released on **2026-11-23**, fix excessive CPU usage in TLS 1.3 when `ssl_early_data` is enabled (**CVE-2026-132779**, medium severity; affected versions: 1.21.4–1.31.9). Nginx 1.31.10 also fixes a separate CPU hogging issue with SSL connections to upstream servers.
+
+All three WNMP v1.74 scripts (`wnmp.sh`, `zh/wnmp.sh` and the independent `zh/wnmp8.1.sh`) default to **Nginx 1.31.10** for full/standalone installations and component upgrades. Run as root, one command at a time:
+
+```sh
+wnmp update
+wnmp update nginx
+/usr/local/nginx/sbin/nginx -v
+```
+
+Press Enter to accept **1.31.10**, or enter **1.30.8** to stay on the stable branch. Verify `nginx/1.31.10` or the stable version selected. **Updating WNMP alone does not upgrade an installed Nginx.** The PHP 8.1 variant retains its own script-update channel; users of that variant should update their own script.
+
+Source caches retain complete versioned filenames, such as `nginx-1.31.10.tar.gz`. PHP defaults, extension choices and pinned security sources are unchanged.
+
+See the [official Nginx release notes](https://nginx.org/en/CHANGES) and [security advisory](https://nginx.org/en/security_advisories.html).
+
+## PHP 8.6.0 — WNMP v1.74 (2026-11-24)
 
 Full installation and `wnmp install php` now offer **PHP 8.6.0 final**. To upgrade an existing installation, run as root:
 
@@ -77,9 +95,9 @@ An isolated build using WNMP's PHP configure options passed on Debian 13/WSL. PH
 
 Official release: [PHP 8.6.0](https://www.php.net/releases/8.6/en.php).
 
-## PHP Security Update — WNMP v1.73 (2026-11-19)
+## PHP Security Update — WNMP v1.74 (2026-11-24)
 
-PHP 8.5.13, 8.4.28, 8.3.37 and 8.2.36 are the security releases published on 2026-11-19. WNMP v1.73 uses these patch versions for full/standalone PHP installations and PHP component upgrades.
+PHP 8.5.13, 8.4.28, 8.3.37 and 8.2.36 are the security releases published on 2026-11-19. WNMP v1.74 uses these patch versions for full/standalone PHP installations and PHP component upgrades.
 
 Existing installations: run the following commands as root, one at a time. At the PHP upgrade prompt, press Enter to accept the security release for your installed PHP series.
 
@@ -92,6 +110,8 @@ wnmp update php
 Verify that PHP reports 8.5.13, 8.4.28, 8.3.37 or 8.2.36 for the corresponding series. **Updating the WNMP script alone does not upgrade an installed PHP.** See the [official PHP ChangeLog](https://www.php.net/ChangeLog-8.php) for the security fixes.
 
 ## Update Log
+
+v1.74 2026-11-24 Nginx security update: full/standalone installations and wnmp update nginx now default to 1.31.10 in the English, Chinese and independent PHP 8.1 scripts. Released on 2026-11-23, 1.31.10 fixes excessive CPU usage in TLS 1.3 with ssl_early_data (CVE-2026-132779) and a separate CPU hogging issue with SSL upstream connections. The fixed stable release is 1.30.8, available by entering it manually at the upgrade prompt. Run wnmp update, then wnmp update nginx; accept 1.31.10 and verify with /usr/local/nginx/sbin/nginx -v. Updating the script alone does not upgrade an installed Nginx. Versioned source cache filenames, PHP defaults, extension choices and pinned security sources are unchanged. All three scripts, English/Chinese READMEs, website pages and release metadata are synchronized to v1.74.
 
 v1.73 2026-11-19 Added PHP 8.6.0 final to full/standalone installation, component upgrades and PHP/FPM configuration. PHP 8.2–8.5 defaults remain 8.2.36, 8.3.37, 8.4.28 and 8.5.13. All six PHP 8.6 Swoole builds tested (v6.1.4, v6.2.6 full/minimal, v6.3.0-rc1, and master full/minimal) failed, so its menu reads php8.6 (no Swoole), skips Swoole/liburing and removes restored Swoole loading directives. PHP 8.6 uses built-in OPcache. Redis 6.3.0 and APCu 5.1.28 also failed to compile; PHP 8.6 instead builds tested, SHA256-verified upstream development snapshots pinned to Redis 5b60b125aba3 and APCu fb2c942552a3. Stable inotify 3.0.1 passed. Isolated PHP-FPM/FastCGI, APCu read/write and inotify watch tests passed. Run wnmp update, then wnmp update php; enter 8.6.0 to switch an older series, or press Enter if already on 8.6. Applications requiring Swoole should stay on PHP 8.2–8.5. English/Chinese scripts, READMEs, website pages and release metadata are synchronized to v1.73.
 
@@ -220,7 +240,7 @@ It’s designed for **small to medium websites, edge nodes, and private deployme
 ## ✨ Core Features
 
 - **Ready-to-Use Web Runtime**  
-  Compiles latest Nginx (1.31.x) with `dav-ext`, `http2`, and `stream` modules.  
+  Compiles Nginx 1.31.10 with `dav-ext`, `http2`, and `stream` modules.
   Supports PHP 8.2–8.6 (PHP 8.6 has no Swoole) and MariaDB 10.6 / 10.11 / 11.8.
 
 - **Kernel & Network Optimization**  
